@@ -28,63 +28,78 @@ A fully automated **post-install script** that configures your system for produc
 
 ---
 
-## 🧊 Ubuntu-Specific Features
+## 🧊 Fedora-Specific Features
+
+Fedora users benefit from a streamlined, fully native NVIDIA and multimedia setup:
+
+- ⚙️ **Automatic NVIDIA driver installation**  
+  Installs the latest available `akmod-nvidia` package with CUDA support, ensuring your GPU drivers remain automatically rebuilt across kernel updates.
+
+- 🧩 **Configures open kernel module for RTX 4000+ series**  
+  For **RTX 4000 series and newer GPUs**, Fedora requires a build macro to enable the open kernel module before installation.  
+  The script handles this automatically, but you can set it manually as follows:
+
+  ```bash
+  # Set open kernel module macro (one-time step for RTX 4000+)
+  sudo sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'
+
+Once set, Fedora will use the open-source NVIDIA kernel module when building akmods.
+
+    🎬 Enables full multimedia stack
+    Installs gstreamer1-plugins-*, ffmpeg, and related codecs to unlock playback support in all major applications.
+
+    🧱 Adds archive utilities
+    Installs common compression tools such as 7zip, unrar, and file-roller for full file format compatibility.
+
+    🌐 Ensures Flatpak and Flathub integration
+    Flathub is configured as the default Flatpak source for easy app access without Snap or RPMFusion conflicts.
+
+Together, these ensure a smooth Fedora experience with open driver support, media acceleration, and production-ready utilities.
+🧊 Ubuntu-Specific Features
 
 Ubuntu users get a clean, optimized, and GPU-ready setup automatically:
 
-- 🧹 **Removes Snap packages completely**  
-  The script purges Snap and all related services using the included `snap-to-flatpak.sh` helper script.
+    🧹 Removes Snap packages completely
+    The script purges Snap and all related services using the included snap-to-flatpak.sh helper script.
 
-- 🔄 **Switches to Flatpak**  
-  After Snap removal, Flathub is added as the default Flatpak remote, ensuring access to thousands of desktop apps.
+    🔄 Switches to Flatpak
+    After Snap removal, Flathub is added as the default Flatpak remote, ensuring access to thousands of desktop apps.
 
-- ⚙️ **Installs NVIDIA drivers intelligently**  
-  The script automatically detects your GPU generation and installs the latest compatible driver:  
+    ⚙️ Installs NVIDIA drivers intelligently
+    The script automatically detects your GPU generation and installs the latest compatible driver:
 
-  - For **RTX 4000 series and newer** → Installs the **latest available NVIDIA Open Kernel Module driver** (e.g., `nvidia-driver-580-open`).  
-  - For **RTX 3000 series and earlier** → Installs the **latest proprietary NVIDIA driver** automatically.  
-  - If detection fails for any reason, the script gracefully falls back to:  
+        For RTX 4000 series and newer → Installs the latest available NVIDIA Open Kernel Module driver (e.g., nvidia-driver-580-open).
 
-  ```bash
-  sudo ubuntu-drivers autoinstall
+        For RTX 3000 series and earlier → Installs the latest proprietary NVIDIA driver automatically.
+
+        If detection fails for any reason, the script gracefully falls back to:
+
+sudo ubuntu-drivers autoinstall
 
 This ensures seamless GPU setup across all modern NVIDIA hardware.
 
-    🌐 Restores Firefox from Mozilla’s official repository (no PPA)
-    Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
-    It:
+🌐 Restores Firefox from Mozilla’s official repository (no PPA)
+Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
+It:
 
-        Adds Mozilla’s verified APT source and GPG key
+    Adds Mozilla’s verified APT source and GPG key
 
-        Configures APT pinning to prioritize Mozilla’s version
+    Configures APT pinning to prioritize Mozilla’s version
 
-        Installs the latest Firefox .deb release maintained by Mozilla themselves
+    Installs the latest Firefox .deb release maintained by Mozilla themselves
 
-    ✅ Verified GPG Key Fingerprint:
+✅ Verified GPG Key Fingerprint:
 
     35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3
 
 Together, this ensures a fully open, Flatpak-friendly Ubuntu environment with a native, GPU-optimized system and up-to-date Firefox browser.
-🐧 Fedora-Specific Notes
-
-Fedora users benefit from a fully native NVIDIA driver setup through akmod-nvidia and CUDA packages.
-
-Special Note for RTX 4000 and Newer Series:
-If you're using a 4000-series or newer GPU, Fedora requires a build macro to enable the open kernel module before driver installation.
-
-Run this one-time setup command:
-
-# Set open kernel module macro (one-time step for RTX 4000+)
-sudo sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'
-
-After this, the script automatically installs the correct akmod package with the open driver enabled.
 🧮 Usage
-~~~bash
+
 git clone https://github.com/ArcticLatent/post-linux.git
 cd post-linux
 chmod +x post_linux.sh
 ./post_linux.sh
-~~~
+
 Follow the interactive prompts to choose your distro and GPU series.
 ⚡ Requirements
 
