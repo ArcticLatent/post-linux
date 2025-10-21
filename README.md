@@ -50,31 +50,42 @@ Ubuntu users get a clean, optimized, and GPU-ready setup automatically:
 
 This ensures seamless GPU setup across all modern NVIDIA hardware.
 
-🌐 Restores Firefox from Mozilla’s official repository (no PPA)
-Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
+    🌐 Restores Firefox from Mozilla’s official repository (no PPA)
+    Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
+    It:
 
-- Adds Mozilla’s verified APT source and GPG key
+        Adds Mozilla’s verified APT source and GPG key
 
-- Configures APT pinning to prioritize Mozilla’s version
+        Configures APT pinning to prioritize Mozilla’s version
 
-- Installs the latest Firefox .deb release maintained by Mozilla themselves
+        Installs the latest Firefox .deb release maintained by Mozilla themselves
 
     ✅ Verified GPG Key Fingerprint:
 
     35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3
 
 Together, this ensures a fully open, Flatpak-friendly Ubuntu environment with a native, GPU-optimized system and up-to-date Firefox browser.
-## 🧮 Usage
+🐧 Fedora-Specific Notes
 
+Fedora users benefit from a fully native NVIDIA driver setup through akmod-nvidia and CUDA packages.
+
+Special Note for RTX 4000 and Newer Series:
+If you're using a 4000-series or newer GPU, Fedora requires a build macro to enable the open kernel module before driver installation.
+
+Run this one-time setup command:
+
+# Set open kernel module macro (one-time step for RTX 4000+)
+sudo sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'
+
+After this, the script automatically installs the correct akmod package with the open driver enabled.
+🧮 Usage
 ~~~bash
 git clone https://github.com/ArcticLatent/post-linux.git
 cd post-linux
 chmod +x post_linux.sh
 ./post_linux.sh
 ~~~
-
 Follow the interactive prompts to choose your distro and GPU series.
-
 ⚡ Requirements
 
     Internet connection
