@@ -212,7 +212,7 @@ ubuntu_post_install() { log "(Awaiting your UBUNTU_POST_INSTALL commands — cur
 ubuntu_flatpak_setup() {
   log "Removing Snaps and switching to Flatpak..."
   TMP_SCRIPT="/tmp/snap-to-flatpak.sh"
-  curl -fsSL "https://raw.githubusercontent.com/MasterGeekMX/snap-to-flatpak/refs/heads/main/snap-to-flatpak.sh" -o "$TMP_SCRIPT"
+  cp "$(dirname "$0")/snap-to-flatpak.sh" "$TMP_SCRIPT"
   chmod +x "$TMP_SCRIPT"
   bash "$TMP_SCRIPT"
   ok "Snap removal and Flatpak setup completed."
