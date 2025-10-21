@@ -8,12 +8,13 @@ A fully automated **post-install script** that configures your system for produc
 
 ## 🚀 Features
 
-- 🧠 Detects your OS (Fedora / Arch / Ubuntu)
-- ⚙️ Installs the latest **NVIDIA** driver (open & legacy paths)
-- 🧩 Switches **Ubuntu from Snap → Flatpak**
-- 🎬 Enables codecs, **Celluloid + MPV**, and GPU acceleration
-- 🗜️ Adds archive tools (7-Zip / RAR / File-Roller)
-- 🧱 Clean “Installing… / Installed.” feedback for every step
+- 🧠 Detects your OS (**Fedora**, **Arch**, or **Ubuntu**)
+- ⚙️ Installs the latest **NVIDIA** drivers (open or proprietary)
+- 🧩 Replaces **Snap with Flatpak** on Ubuntu
+- 🌐 Reinstalls **Firefox** via Mozilla’s official APT repository
+- 🎬 Enables media codecs, **Celluloid + MPV**, and GPU acceleration
+- 🗜️ Adds archive tools (`7zip`, `rar`, `file-roller`, etc.)
+- 🧱 Clean `Installing... / Installed.` feedback for every step
 
 ---
 
@@ -21,9 +22,34 @@ A fully automated **post-install script** that configures your system for produc
 
 | Distro | NVIDIA | Flatpak | Codecs | Archive |
 |:--|:--:|:--:|:--:|:--:|
-| **Fedora 40 +** | ✅ akmod + CUDA | ✅ RPM Fusion | ✅ GStreamer + ffmpeg | ✅ |
+| **Fedora 40+** | ✅ akmod + CUDA | ✅ RPM Fusion | ✅ GStreamer + ffmpeg | ✅ |
 | **Arch Linux** | ✅ open/proprietary | ✅ | ✅ GStreamer | ✅ |
-| **Ubuntu 22.04 +** | ✅ Driver 580 PPA | ✅ Snap→Flatpak | ✅ Multiverse + Extras | ✅ |
+| **Ubuntu 22.04+** | ✅ Driver 580 PPA | ✅ Snap→Flatpak | ✅ Multiverse + Extras | ✅ |
+
+---
+
+## 🧊 Ubuntu-Specific Features
+
+Ubuntu users get a clean and modern setup automatically:
+
+- 🧹 **Removes Snap packages completely**  
+  The script purges Snap and all related services using the included `snap-to-flatpak.sh` helper script.
+
+- 🔄 **Switches to Flatpak**  
+  After Snap removal, Flathub is added as the default Flatpak remote, ensuring access to thousands of desktop apps.
+
+- 🌐 **Restores Firefox via official APT repository**  
+  Because removing Snap also removes the preinstalled Snap-based Firefox, the script:
+  1. Adds Mozilla’s official APT repository and imports its GPG key  
+  2. Pins it with high priority for future updates  
+  3. Installs the latest **Firefox `.deb`** package system-wide  
+
+  The imported key fingerprint is verified as:
+
+35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3
+
+
+Together, this ensures a fully open, Flatpak-friendly Ubuntu environment with a native, up-to-date Firefox browser.
 
 ---
 
@@ -48,4 +74,3 @@ Follow the interactive prompts to choose your distro and GPU series.
 
 MIT License © 2025 Burce Boran
 Contributions welcome — open a PR or issue!
-<p align="center"> <img src="https://img.shields.io/badge/Linux-Post-Install-Script-blue?logo=linux&logoColor=white&style=for-the-badge" alt="Badge"/> <img src="https://img.shields.io/badge/NVIDIA-Ready-green?logo=nvidia&logoColor=white&style=for-the-badge" alt="NVIDIA Badge"/> </p> ```
