@@ -65,14 +65,17 @@ This ensures seamless GPU setup across all modern NVIDIA hardware.
     35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3
 
 Together, this ensures a fully open, Flatpak-friendly Ubuntu environment with a native, GPU-optimized system and up-to-date Firefox browser.
-🧮 Usage
+## 🧮 Usage
 
+~~~bash
 git clone https://github.com/ArcticLatent/post-linux.git
 cd post-linux
 chmod +x post_linux.sh
 ./post_linux.sh
+~~~
 
 Follow the interactive prompts to choose your distro and GPU series.
+
 ⚡ Requirements
 
     Internet connection
