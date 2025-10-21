@@ -54,11 +54,11 @@ This ensures seamless GPU setup across all modern NVIDIA hardware.
     Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
     It:
 
-        Adds Mozilla’s verified APT source and GPG key
+- Adds Mozilla’s verified APT source and GPG key
 
-        Configures APT pinning to prioritize Mozilla’s version
+- Configures APT pinning to prioritize Mozilla’s version
 
-        Installs the latest Firefox .deb release maintained by Mozilla themselves
+- Installs the latest Firefox .deb release maintained by Mozilla themselves
 
     ✅ Verified GPG Key Fingerprint:
 
