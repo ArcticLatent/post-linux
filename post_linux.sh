@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v0.6 — Adds consistent "installing... / installed" messaging across ALL OSes/sections
+# v0.7 — robust OS checks, safe AUR (yay) build, clean Firefox APT quoting
 
 set -Eeuo pipefail
 
@@ -8,7 +8,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC
 log()  { echo -e "${BLUE}[INFO]${NC} $*"; }
 ok()   { echo -e "${GREEN}[OK]${NC}  $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "${RED}[ERR]${NC}  $*" 1>&2; }
+err()  { echo -e "${RED}[ERR]${NC}  $*"; }
 
 trap 'err "Command failed at line $LINENO: $BASH_COMMAND"' ERR
 
@@ -17,6 +17,20 @@ require_root() {
     warn "This script needs root. Re-running with sudo..."
     exec sudo -E bash "$0" "$@"
   fi
+}
+
+# Identify the non-root invoking user (for building AUR packages, etc.)
+get_invoking_user() {
+  if [[ -n "${SUDO_USER:-}" && "$EUID" -eq 0 ]]; then
+    echo "$SUDO_USER"
+  else
+    echo "$USER"
+  fi
+}
+
+run_as_user() { # usage: run_as_user <username> "cmd..."
+  local u="$1"; shift
+  sudo -u "$u" bash -lc "$*"
 }
 
 # ---------- Generic helper to wrap any install-like command with messages ----------
@@ -59,15 +73,20 @@ choose_gpu() {
 }
 
 # ========================= FEDORA =========================
-fedora_detect() { grep -qi 'fedora' /etc/os-release; }
+fedora_detect() {
+  if [[ -f /etc/os-release ]]; then
+    if grep -qiE '^ID=fedora' /etc/os-release || grep -qiE '^ID_LIKE=.*fedora' /etc/os-release || grep -qi 'Fedora' /etc/os-release; then
+      return 0
+    fi
+  fi
+  return 1
+}
 
 fedora_update_base() {
   log "Refreshing dnf metadata..."; dnf -y makecache; ok "dnf metadata updated";
 }
 
-fedora_nvidia_installed() {
-  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then return 0; fi; return 1;
-}
+fedora_nvidia_installed() { if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then return 0; fi; return 1; }
 
 fedora_show_nvidia_info() {
   command -v nvidia-smi &>/dev/null && nvidia-smi || true
@@ -131,7 +150,10 @@ fedora_archive_support() {
 }
 
 run_fedora() {
-  fedora_detect || warn "System does not look like Fedora, continuing..."
+  if ! fedora_detect; then
+    err "OS mismatch: You selected Fedora, but this system does not appear to be Fedora. Aborting."; exit 1
+  fi
+  log "Starting Fedora flow..."
   fedora_update_base
   fedora_enable_rpmfusion
   fedora_install_nvidia
@@ -143,7 +165,14 @@ run_fedora() {
 }
 
 # ========================= ARCH =========================
-arch_detect() { grep -qi 'arch' /etc/os-release || grep -qi 'Arch Linux' /etc/os-release; }
+arch_detect() {
+  if [[ -f /etc/os-release ]]; then
+    if grep -qiE '^ID=arch' /etc/os-release || grep -qiE '^ID_LIKE=.*arch' /etc/os-release || grep -qi 'Arch Linux' /etc/os-release; then
+      return 0
+    fi
+  fi
+  return 1
+}
 
 arch_update_base() {
   log "(Awaiting your ARCH_UPDATE commands — currently empty)"; ok "Arch base update section finished.";
@@ -165,8 +194,39 @@ arch_install_nvidia() {
 arch_post_install() {
   install_step "System update" pacman -Syu --noconfirm
   install_step "base-devel + git" pacman -S --needed --noconfirm base-devel git
-  log "Cloning yay..."; cd ~; if [[ ! -d yay ]]; then git clone https://aur.archlinux.org/yay.git; fi; ok "yay repository ready.";
-  log "Building yay..."; cd yay; makepkg -si --noconfirm; ok "yay installed.";
+
+  # Build yay as the invoking (non-root) user to avoid makepkg safety error
+  local invu; invu=$(get_invoking_user)
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    err "Cannot determine a non-root user to build yay. Please run this script with sudo from your regular user."
+    exit 1
+  fi
+
+  log "Cloning yay (as $invu)..."
+  # Fix ownership if a previous root-run created the dir
+  if [[ -d "/home/$invu/yay" ]]; then
+    chown -R "$invu:$invu" "/home/$invu/yay" || true
+  fi
+  run_as_user "$invu" "cd ~; [[ -d yay ]] || git clone https://aur.archlinux.org/yay.git"
+  chown -R "$invu:$invu" "/home/$invu/yay" || true
+  ok "yay repository ready."
+
+  log "Building yay package (as $invu)..."
+  # Ensure a writable build dir for makepkg under the user's home
+  run_as_user "$invu" 'mkdir -p "$HOME/.cache/makepkg" && chmod -R u+rwX "$HOME/.cache/makepkg"'
+  # Build with BUILDDIR pointing to the user's cache
+  run_as_user "$invu" 'cd "$HOME/yay" && BUILDDIR="$HOME/.cache/makepkg" makepkg -sf --noconfirm'
+  ok "yay package built."
+
+  # Install the built package as root
+  local pkg
+  pkg=$(ls -t "/home/$invu/yay/"*.pkg.tar.* 2>/dev/null | head -n1 || true)
+  if [[ -n "$pkg" ]]; then
+    install_step "Install yay package" pacman -U --noconfirm "$pkg"
+  else
+    err "Failed to locate built yay package for installation."
+    exit 1
+  fi
 }
 
 arch_flatpak_setup() { install_step "Flatpak" pacman -S --noconfirm --needed flatpak; }
@@ -181,7 +241,10 @@ arch_hwaccel_setup() { install_step "NVIDIA VAAPI driver" pacman -S --noconfirm 
 arch_archive_support() { install_step "Archive tools (tar, zip, 7zip)" pacman -S --noconfirm --needed tar gzip zip unzip p7zip; }
 
 run_arch() {
-  arch_detect || warn "System does not look like Arch, continuing..."
+  if ! arch_detect; then
+    err "OS mismatch: You selected Arch, but this system does not appear to be Arch Linux. Aborting."; exit 1
+  fi
+  log "Starting Arch flow..."
   arch_update_base
   arch_install_nvidia
   arch_post_install
@@ -192,7 +255,17 @@ run_arch() {
 }
 
 # ========================= UBUNTU =========================
-ubuntu_detect() { [[ -f /etc/lsb-release ]] || grep -qi ubuntu /etc/os-release; }
+ubuntu_detect() {
+  if [[ -f /etc/os-release ]]; then
+    if grep -qiE '^ID=ubuntu' /etc/os-release || grep -qiE '^ID_LIKE=.*ubuntu' /etc/os-release || grep -qi 'Ubuntu' /etc/os-release; then
+      return 0
+    fi
+  fi
+  if [[ -f /etc/lsb-release ]] && grep -qi 'ubuntu' /etc/lsb-release; then
+    return 0
+  fi
+  return 1
+}
 
 ubuntu_update_base() {
   log "Updating Ubuntu base system..."; apt update -y; ok "apt update complete.";
@@ -224,21 +297,12 @@ ubuntu_flatpak_setup() {
   # -------------------- Firefox APT (post-snap purge) --------------------
   log "Configuring Mozilla APT repo and installing Firefox..."
   install_step "Create /etc/apt/keyrings" install -d -m 0755 /etc/apt/keyrings
-  # If wget missing, install it
   install_step "wget" apt-get install -y wget
-  # Import Mozilla repo signing key
   install_step "Import Mozilla APT key" bash -lc 'wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O- | tee /etc/apt/keyrings/packages.mozilla.org.asc > /dev/null'
-  # Show fingerprint (as provided)
   log "Verifying key fingerprint (expect 35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3)..."
-  bash -lc 'gpg -n -q --import --import-options import-show /etc/apt/keyrings/packages.mozilla.org.asc | awk "/pub/{getline; gsub(/^ +| +$/,"\"); print 
-\$0
-}"' || true
-  # Add Mozilla repo
+  bash -lc 'gpg -n -q --import --import-options import-show /etc/apt/keyrings/packages.mozilla.org.asc | awk '\''/pub/{getline; gsub(/^ +| +$/,""); print "\n"$0"\n"}'\''' || true
   install_step "Add Mozilla APT source" bash -lc 'echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" | tee -a /etc/apt/sources.list.d/mozilla.list > /dev/null'
-  # Pin Mozilla origin
-  install_step "Pin Mozilla origin" bash -lc 'printf "%s
-" "Package: *" "Pin: origin packages.mozilla.org" "Pin-Priority: 1000" | tee /etc/apt/preferences.d/mozilla > /dev/null'
-  # Update and install Firefox
+  install_step "Pin Mozilla origin" bash -lc 'printf "%s\n" "Package: *" "Pin: origin packages.mozilla.org" "Pin-Priority: 1000" | tee /etc/apt/preferences.d/mozilla > /dev/null'
   log "apt-get update..."; apt-get update -y; ok "apt-get update complete."
   install_step "Firefox (APT)" apt-get install -y firefox
 }
@@ -255,7 +319,10 @@ ubuntu_hwaccel_setup() { install_step "NVIDIA VAAPI driver" apt install -y nvidi
 ubuntu_archive_support() { install_step "Archive tools (7zip, file-roller, rar)" apt install -y 7zip file-roller rar; }
 
 run_ubuntu() {
-  ubuntu_detect || warn "System does not look like Ubuntu, continuing..."
+  if ! ubuntu_detect; then
+    err "OS mismatch: You selected Ubuntu, but this system does not appear to be Ubuntu. Aborting."; exit 1
+  fi
+  log "Starting Ubuntu flow..."
   ubuntu_update_base
   ubuntu_install_nvidia
   ubuntu_post_install
