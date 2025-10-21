@@ -22,9 +22,9 @@ A fully automated **post-install script** that configures your system for produc
 
 | Distro | NVIDIA | Flatpak | Codecs | Archive |
 |:--|:--:|:--:|:--:|:--:|
-| **Fedora 40+** | ✅ akmod + CUDA | ✅ RPM Fusion | ✅ GStreamer + ffmpeg | ✅ |
-| **Arch Linux** | ✅ open/proprietary | ✅ | ✅ GStreamer | ✅ |
-| **Ubuntu 22.04+** | ✅ Driver 580 PPA | ✅ Snap→Flatpak | ✅ Multiverse + Extras | ✅ |
+| ![Fedora](https://img.shields.io/badge/Fedora-40%2B-0A6CF5?logo=fedora&logoColor=white&style=flat-square) | ✅ akmod + CUDA | ✅ RPM Fusion | ✅ GStreamer + ffmpeg | ✅ |
+| ![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793D1?logo=archlinux&logoColor=white&style=flat-square) | ✅ open/proprietary | ✅ | ✅ GStreamer | ✅ |
+| ![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%2B-E95420?logo=ubuntu&logoColor=white&style=flat-square) | ✅ Driver 580 PPA | ✅ Snap→Flatpak | ✅ Multiverse + Extras | ✅ |
 
 ---
 
@@ -56,7 +56,7 @@ Together, this ensures a fully open, Flatpak-friendly Ubuntu environment with a 
 ## 🧮 Usage
 
 ```bash
-git clone https://github.com/<your_username>/post-linux.git
+git clone https://github.com/ArcticLatent/post-linux.git
 cd post-linux
 chmod +x post_linux.sh
 ./post_linux.sh
@@ -68,7 +68,7 @@ Follow the interactive prompts to choose your distro and GPU series.
 
     sudo privileges
 
-    For Fedora + Arch: recommended to run after first full update
+    recommended to run a reboot after first full update
 
 📜 License
 
