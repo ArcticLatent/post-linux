@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v0.7 — robust OS checks, safe AUR (yay) build, clean Firefox APT quoting
+# v0.6 — Adds consistent "installing... / installed" messaging across ALL OSes/sections
 
 set -Eeuo pipefail
 
@@ -8,7 +8,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC
 log()  { echo -e "${BLUE}[INFO]${NC} $*"; }
 ok()   { echo -e "${GREEN}[OK]${NC}  $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "${RED}[ERR]${NC}  $*"; }
+err()  { echo -e "${RED}[ERR]${NC}  $*" 1>&2; }
 
 trap 'err "Command failed at line $LINENO: $BASH_COMMAND"' ERR
 
@@ -24,6 +24,7 @@ get_invoking_user() {
   if [[ -n "${SUDO_USER:-}" && "$EUID" -eq 0 ]]; then
     echo "$SUDO_USER"
   else
+    # Fallback to current user if not running via sudo (not typical here)
     echo "$USER"
   fi
 }
@@ -86,7 +87,9 @@ fedora_update_base() {
   log "Refreshing dnf metadata..."; dnf -y makecache; ok "dnf metadata updated";
 }
 
-fedora_nvidia_installed() { if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then return 0; fi; return 1; }
+fedora_nvidia_installed() {
+  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then return 0; fi; return 1;
+}
 
 fedora_show_nvidia_info() {
   command -v nvidia-smi &>/dev/null && nvidia-smi || true
@@ -198,34 +201,24 @@ arch_post_install() {
   # Build yay as the invoking (non-root) user to avoid makepkg safety error
   local invu; invu=$(get_invoking_user)
   if [[ -z "$invu" || "$invu" == "root" ]]; then
-    err "Cannot determine a non-root user to build yay. Please run this script with sudo from your regular user."
-    exit 1
+    err "Cannot determine a non-root user to build yay. Please run this script with sudo from your regular user."; exit 1
   fi
 
   log "Cloning yay (as $invu)..."
-  # Fix ownership if a previous root-run created the dir
-  if [[ -d "/home/$invu/yay" ]]; then
-    chown -R "$invu:$invu" "/home/$invu/yay" || true
-  fi
   run_as_user "$invu" "cd ~; [[ -d yay ]] || git clone https://aur.archlinux.org/yay.git"
-  chown -R "$invu:$invu" "/home/$invu/yay" || true
   ok "yay repository ready."
 
   log "Building yay package (as $invu)..."
-  # Ensure a writable build dir for makepkg under the user's home
-  run_as_user "$invu" 'mkdir -p "$HOME/.cache/makepkg" && chmod -R u+rwX "$HOME/.cache/makepkg"'
-  # Build with BUILDDIR pointing to the user's cache
-  run_as_user "$invu" 'cd "$HOME/yay" && BUILDDIR="$HOME/.cache/makepkg" makepkg -sf --noconfirm'
+  run_as_user "$invu" "cd ~/yay && makepkg -sf --noconfirm"
   ok "yay package built."
 
   # Install the built package as root
   local pkg
-  pkg=$(ls -t "/home/$invu/yay/"*.pkg.tar.* 2>/dev/null | head -n1 || true)
+  pkg=$(ls -t /home/"$invu"/yay/*.pkg.tar.* 2>/dev/null | head -n1 || true)
   if [[ -n "$pkg" ]]; then
     install_step "Install yay package" pacman -U --noconfirm "$pkg"
   else
-    err "Failed to locate built yay package for installation."
-    exit 1
+    err "Failed to locate built yay package for installation."; exit 1
   fi
 }
 
@@ -275,9 +268,21 @@ ubuntu_update_base() {
 }
 
 ubuntu_install_nvidia() {
-  install_step "graphics-drivers PPA" add-apt-repository -y ppa:graphics-drivers/ppa
-  log "apt update..."; apt update -y; ok "apt update complete.";
-  install_step "NVIDIA driver (580)" apt install -y nvidia-driver-580
+  # Check if NVIDIA is already working
+  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+    ok "NVIDIA driver already present and working."
+    command -v nvidia-smi &>/dev/null && nvidia-smi || true
+    return
+  fi
+
+  # Ensure ubuntu-drivers tool exists
+  if ! command -v ubuntu-drivers &>/dev/null; then
+    install_step "ubuntu-drivers-common" apt install -y ubuntu-drivers-common
+  fi
+
+  # Let Ubuntu auto-detect the best driver (may choose open or proprietary as appropriate)
+  install_step "Auto-detected NVIDIA driver" ubuntu-drivers install --gpgpu
+  warn "If kernel modules aren't loaded yet, a reboot may be required."
 }
 
 ubuntu_post_install() { log "(Awaiting your UBUNTU_POST_INSTALL commands — currently empty)"; ok "Ubuntu post-install completed."; }
@@ -297,12 +302,21 @@ ubuntu_flatpak_setup() {
   # -------------------- Firefox APT (post-snap purge) --------------------
   log "Configuring Mozilla APT repo and installing Firefox..."
   install_step "Create /etc/apt/keyrings" install -d -m 0755 /etc/apt/keyrings
+  # If wget missing, install it
   install_step "wget" apt-get install -y wget
+  # Import Mozilla repo signing key
   install_step "Import Mozilla APT key" bash -lc 'wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O- | tee /etc/apt/keyrings/packages.mozilla.org.asc > /dev/null'
+  # Show fingerprint (as provided)
   log "Verifying key fingerprint (expect 35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3)..."
-  bash -lc 'gpg -n -q --import --import-options import-show /etc/apt/keyrings/packages.mozilla.org.asc | awk '\''/pub/{getline; gsub(/^ +| +$/,""); print "\n"$0"\n"}'\''' || true
+  bash -lc 'gpg -n -q --import --import-options import-show /etc/apt/keyrings/packages.mozilla.org.asc | awk "/pub/{getline; gsub(/^ +| +$/,"\"); print 
+\$0
+}"' || true
+  # Add Mozilla repo
   install_step "Add Mozilla APT source" bash -lc 'echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" | tee -a /etc/apt/sources.list.d/mozilla.list > /dev/null'
-  install_step "Pin Mozilla origin" bash -lc 'printf "%s\n" "Package: *" "Pin: origin packages.mozilla.org" "Pin-Priority: 1000" | tee /etc/apt/preferences.d/mozilla > /dev/null'
+  # Pin Mozilla origin
+  install_step "Pin Mozilla origin" bash -lc 'printf "%s
+" "Package: *" "Pin: origin packages.mozilla.org" "Pin-Priority: 1000" | tee /etc/apt/preferences.d/mozilla > /dev/null'
+  # Update and install Firefox
   log "apt-get update..."; apt-get update -y; ok "apt-get update complete."
   install_step "Firefox (APT)" apt-get install -y firefox
 }
