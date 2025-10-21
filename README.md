@@ -50,9 +50,8 @@ Ubuntu users get a clean, optimized, and GPU-ready setup automatically:
 
 This ensures seamless GPU setup across all modern NVIDIA hardware.
 
-    🌐 Restores Firefox from Mozilla’s official repository (no PPA)
-    Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
-    It:
+🌐 Restores Firefox from Mozilla’s official repository (no PPA)
+Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
 
 - Adds Mozilla’s verified APT source and GPG key
 
