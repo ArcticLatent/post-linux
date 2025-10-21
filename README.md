@@ -40,33 +40,33 @@ Ubuntu users get a clean, optimized, and GPU-ready setup automatically:
 
 - ⚙️ **Installs NVIDIA drivers intelligently**  
   The script automatically detects your GPU generation and installs the latest compatible driver:  
+
   - For **RTX 4000 series and newer** → Installs the **latest available NVIDIA Open Kernel Module driver** (e.g., `nvidia-driver-580-open`).  
   - For **RTX 3000 series and earlier** → Installs the **latest proprietary NVIDIA driver** automatically.  
   - If detection fails for any reason, the script gracefully falls back to:  
-    ```bash
-    sudo ubuntu-drivers autoinstall
-    ```
-  This ensures seamless GPU setup across all modern NVIDIA hardware.
 
-- 🌐 **Restores Firefox from Mozilla’s official repository (no PPA)**  
-  Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from **Mozilla’s official APT repository**, not Ubuntu’s PPAs.  
-  It:
-  1. Adds Mozilla’s verified APT source and GPG key  
-  2. Configures APT pinning to prioritize Mozilla’s version  
-  3. Installs the latest **Firefox `.deb`** release maintained by Mozilla themselves  
+  ```bash
+  sudo ubuntu-drivers autoinstall
 
-  ✅ **Verified GPG Key Fingerprint:**  
+This ensures seamless GPU setup across all modern NVIDIA hardware.
 
-35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3
+    🌐 Restores Firefox from Mozilla’s official repository (no PPA)
+    Because removing Snap also removes the preinstalled Snap-based Firefox, the script reinstalls Firefox directly from Mozilla’s official APT repository, not Ubuntu’s PPAs.
+    It:
 
+        Adds Mozilla’s verified APT source and GPG key
+
+        Configures APT pinning to prioritize Mozilla’s version
+
+        Installs the latest Firefox .deb release maintained by Mozilla themselves
+
+    ✅ Verified GPG Key Fingerprint:
+
+    35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3
 
 Together, this ensures a fully open, Flatpak-friendly Ubuntu environment with a native, GPU-optimized system and up-to-date Firefox browser.
+🧮 Usage
 
----
-
-## 🧮 Usage
-
-```bash
 git clone https://github.com/ArcticLatent/post-linux.git
 cd post-linux
 chmod +x post_linux.sh
