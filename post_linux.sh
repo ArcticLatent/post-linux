@@ -211,11 +211,36 @@ ubuntu_post_install() { log "(Awaiting your UBUNTU_POST_INSTALL commands — cur
 
 ubuntu_flatpak_setup() {
   log "Removing Snaps and switching to Flatpak..."
+  # Use the local script if present; otherwise fetch it
   TMP_SCRIPT="/tmp/snap-to-flatpak.sh"
-  cp "$(dirname "$0")/snap-to-flatpak.sh" "$TMP_SCRIPT"
+  if [[ -f "$(dirname "$0")/snap-to-flatpak.sh" ]]; then
+    install_step "snap-to-flatpak (local script)" cp "$(dirname "$0")/snap-to-flatpak.sh" "$TMP_SCRIPT"
+  else
+    install_step "snap-to-flatpak (download script)" curl -fsSL "https://raw.githubusercontent.com/MasterGeekMX/snap-to-flatpak/refs/heads/main/snap-to-flatpak.sh" -o "$TMP_SCRIPT"
+  fi
   chmod +x "$TMP_SCRIPT"
-  bash "$TMP_SCRIPT"
-  ok "Snap removal and Flatpak setup completed."
+  log "Executing snap-to-flatpak script..."; bash "$TMP_SCRIPT"; ok "Snap removal and Flatpak setup completed."
+
+  # -------------------- Firefox APT (post-snap purge) --------------------
+  log "Configuring Mozilla APT repo and installing Firefox..."
+  install_step "Create /etc/apt/keyrings" install -d -m 0755 /etc/apt/keyrings
+  # If wget missing, install it
+  install_step "wget" apt-get install -y wget
+  # Import Mozilla repo signing key
+  install_step "Import Mozilla APT key" bash -lc 'wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O- | tee /etc/apt/keyrings/packages.mozilla.org.asc > /dev/null'
+  # Show fingerprint (as provided)
+  log "Verifying key fingerprint (expect 35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3)..."
+  bash -lc 'gpg -n -q --import --import-options import-show /etc/apt/keyrings/packages.mozilla.org.asc | awk "/pub/{getline; gsub(/^ +| +$/,"\"); print 
+\$0
+}"' || true
+  # Add Mozilla repo
+  install_step "Add Mozilla APT source" bash -lc 'echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" | tee -a /etc/apt/sources.list.d/mozilla.list > /dev/null'
+  # Pin Mozilla origin
+  install_step "Pin Mozilla origin" bash -lc 'printf "%s
+" "Package: *" "Pin: origin packages.mozilla.org" "Pin-Priority: 1000" | tee /etc/apt/preferences.d/mozilla > /dev/null'
+  # Update and install Firefox
+  log "apt-get update..."; apt-get update -y; ok "apt-get update complete."
+  install_step "Firefox (APT)" apt-get install -y firefox
 }
 
 ubuntu_media_setup() {
@@ -254,3 +279,4 @@ main() {
 }
 
 main "$@"
+
