@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v0.6 — Adds consistent "installing... / installed" messaging across ALL OSes/sections
+# v0.6.2 — Fedora dupes removed, Ubuntu Firefox key import fixed, snap-to-flatpak URL corrected,
+# apt update flags cleaned, and Ubuntu NVIDIA flow updated with version-pick + autoinstall fallback.
 
 set -Eeuo pipefail
 
@@ -46,10 +47,10 @@ OS_SEL=""
 GPU_SEL=""
 
 choose_os() {
-  echo "Choose your OS:";
-  echo "  1) Ubuntu";
-  echo "  2) Fedora";
-  echo "  3) Arch";
+  echo "Choose your OS:"
+  echo "  1) Ubuntu"
+  echo "  2) Fedora"
+  echo "  3) Arch"
   read -rp "Enter number [1-3]: " ans
   case "$ans" in
     1) OS_SEL="ubuntu" ;;
@@ -61,9 +62,9 @@ choose_os() {
 }
 
 choose_gpu() {
-  echo "Select NVIDIA GPU generation:";
-  echo "  1) RTX 4000/5000 series (Ada/Lovelace-next)";
-  echo "  2) RTX 3000 series or older (Ampere/Turing/older)";
+  echo "Select NVIDIA GPU generation:"
+  echo "  1) RTX 4000/5000 series (Ada/Lovelace-next)"
+  echo "  2) RTX 3000 series or older (Ampere/Turing/older)"
   read -rp "Enter number [1-2]: " ans
   case "$ans" in
     1) GPU_SEL="ada_4000_plus" ;;
@@ -121,12 +122,13 @@ fedora_install_nvidia() {
 
 fedora_post_install() {
   log "Running Fedora post-install commands..."
-  install_step "RPM Fusion (free)" dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
-  install_step "RPM Fusion (nonfree)" dnf install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+  # RPM Fusion setup is handled in fedora_enable_rpmfusion() to avoid duplication
   log "Upgrading core group..."; dnf group upgrade core -y; ok "Core group upgraded."
   log "Checking updates..."; dnf check-update || true; ok "Check complete."
   log "Applying updates..."; dnf update -y; ok "System updated."
-  if [[ $(dnf history info | grep -c kernel) -gt 0 ]]; then read -rp "Kernel update detected. Reboot now? (y/n): " r; [[ "$r" =~ ^[Yy]$ ]] && reboot || warn "Please reboot manually later."; fi
+  if dnf history | grep -qi kernel; then
+    read -rp "Kernel update may have occurred. Reboot now? (y/n): " r; [[ "$r" =~ ^[Yy]$ ]] && reboot || warn "Please reboot manually later."
+  fi
   ok "Fedora post-install completed."
 }
 
@@ -261,28 +263,82 @@ ubuntu_detect() {
 }
 
 ubuntu_update_base() {
-  log "Updating Ubuntu base system..."; apt update -y; ok "apt update complete.";
+  log "Updating Ubuntu base system..."; apt update; ok "apt update complete.";
   log "Running dist-upgrade..."; apt dist-upgrade -y; ok "dist-upgrade complete.";
   install_step "software-properties-common" apt install -y software-properties-common
   log "Autoremoving unused packages..."; apt autoremove -y; ok "Autoremove complete.";
 }
 
 ubuntu_install_nvidia() {
-  # Check if NVIDIA is already working
+  # New Ubuntu NVIDIA flow per your guide (handles 4000+ open module vs 3000-/older)
+
+  # 0) Fast exit if already working
   if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
     ok "NVIDIA driver already present and working."
-    command -v nvidia-smi &>/dev/null && nvidia-smi || true
+    nvidia-smi || true
     return
   fi
 
-  # Ensure ubuntu-drivers tool exists
+  # 1) Ensure system is up to date
+  log "Updating system (apt update && apt upgrade -y)..."
+  apt update
+  apt upgrade -y
+  ok "System packages updated."
+
+  # 2) Build tools + running-kernel headers
+  install_step "Build tools + kernel headers" bash -lc 'apt install -y build-essential linux-headers-$(uname -r)'
+
+  # 3) Ensure ubuntu-drivers is available
   if ! command -v ubuntu-drivers &>/dev/null; then
     install_step "ubuntu-drivers-common" apt install -y ubuntu-drivers-common
   fi
 
-  # Let Ubuntu auto-detect the best driver (may choose open or proprietary as appropriate)
-  install_step "Auto-detected NVIDIA driver" ubuntu-drivers install --gpgpu
-  warn "If kernel modules aren't loaded yet, a reboot may be required."
+  # 4) List available drivers and pick the newest version by number
+  log "Probing available NVIDIA drivers..."
+  local drv_list drv_nums latest ver pkg
+  drv_list=$(ubuntu-drivers list 2>/dev/null || true)
+  echo "$drv_list" | sed 's/^/[INFO]  /'
+
+  if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
+    # Prefer the open kernel module for 4000/5000 series
+    drv_nums=$(echo "$drv_list" | grep -oE 'nvidia-driver-[0-9]+-open' | grep -oE '[0-9]+' | sort -n | uniq)
+    latest=$(echo "$drv_nums" | tail -n1)
+    if [[ -n "$latest" ]]; then
+      ver="$latest"
+      pkg="nvidia-driver-${ver}-open"
+    fi
+  else
+    # Prefer proprietary (no -open) for 3000 and older
+    drv_nums=$(echo "$drv_list" | grep -oE 'nvidia-driver-[0-9]+( |$)' | grep -oE '[0-9]+' | sort -n | uniq)
+    latest=$(echo "$drv_nums" | tail -n1)
+    if [[ -n "$latest" ]]; then
+      ver="$latest"
+      pkg="nvidia-driver-${ver}"
+    fi
+  fi
+
+  if [[ -z "${pkg:-}" ]]; then
+    warn "Could not determine a specific driver package from ubuntu-drivers list. Falling back to autoinstall."
+    install_step "Auto-detected NVIDIA driver" ubuntu-drivers autoinstall
+  else
+    install_step "NVIDIA driver ($pkg)" apt install -y "$pkg"
+  fi
+
+  # 5) GRUB: enable DRM KMS for Wayland / modeset issues
+  if [[ -f /etc/default/grub ]]; then
+    if ! grep -q 'nvidia-drm.modeset=1' /etc/default/grub; then
+      log "Adding nvidia-drm.modeset=1 to GRUB_CMDLINE_LINUX_DEFAULT..."
+      awk -v add='nvidia-drm.modeset=1' 'BEGIN{FS=OFS="\""} /^GRUB_CMDLINE_LINUX_DEFAULT=/ { if(index($2, add)==0){ $2=$2 " " add } } {print}' /etc/default/grub > /tmp/grub.new && mv /tmp/grub.new /etc/default/grub
+      ok "Kernel cmdline updated."
+      log "Updating GRUB..."; update-grub; ok "GRUB updated."
+    else
+      ok "GRUB already includes nvidia-drm.modeset=1"
+    fi
+  else
+    warn "/etc/default/grub not found; skipping GRUB update."
+  fi
+
+  warn "Reboot may be required for modules to load and KMS to take effect."
 }
 
 ubuntu_post_install() { log "(Awaiting your UBUNTU_POST_INSTALL commands — currently empty)"; ok "Ubuntu post-install completed."; }
@@ -294,7 +350,7 @@ ubuntu_flatpak_setup() {
   if [[ -f "$(dirname "$0")/snap-to-flatpak.sh" ]]; then
     install_step "snap-to-flatpak (local script)" cp "$(dirname "$0")/snap-to-flatpak.sh" "$TMP_SCRIPT"
   else
-    install_step "snap-to-flatpak (download script)" curl -fsSL "https://raw.githubusercontent.com/MasterGeekMX/snap-to-flatpak/refs/heads/main/snap-to-flatpak.sh" -o "$TMP_SCRIPT"
+    install_step "snap-to-flatpak (download script)" curl -fsSL "https://raw.githubusercontent.com/MasterGeekMX/snap-to-flatpak/main/snap-to-flatpak.sh" -o "$TMP_SCRIPT"
   fi
   chmod +x "$TMP_SCRIPT"
   log "Executing snap-to-flatpak script..."; bash "$TMP_SCRIPT"; ok "Snap removal and Flatpak setup completed."
@@ -305,25 +361,22 @@ ubuntu_flatpak_setup() {
   # If wget missing, install it
   install_step "wget" apt-get install -y wget
   # Import Mozilla repo signing key
-  install_step "Import Mozilla APT key" bash -lc 'wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O- | tee /etc/apt/keyrings/packages.mozilla.org.asc > /dev/null'
-  # Show fingerprint (as provided)
+  install_step "Import Mozilla APT key" bash -lc 'wget -q https://packages.mozilla.org/apt/repo-signing-key.gpg -O /etc/apt/keyrings/packages.mozilla.org.asc'
+  # Show fingerprint (for verification)
   log "Verifying key fingerprint (expect 35BAA0B33E9EB396F59CA838C0BA5CE6DC6315A3)..."
-  bash -lc 'gpg -n -q --import --import-options import-show /etc/apt/keyrings/packages.mozilla.org.asc | awk "/pub/{getline; gsub(/^ +| +$/,"\"); print 
-\$0
-}"' || true
+  bash -lc 'gpg --show-keys --with-fingerprint /etc/apt/keyrings/packages.mozilla.org.asc | sed -n "s/^ *Key fingerprint = //p"' || true
   # Add Mozilla repo
-  install_step "Add Mozilla APT source" bash -lc 'echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" | tee -a /etc/apt/sources.list.d/mozilla.list > /dev/null'
+  install_step "Add Mozilla APT source" bash -lc 'echo "deb [signed-by=/etc/apt/keyrings/packages.mozilla.org.asc] https://packages.mozilla.org/apt mozilla main" | tee /etc/apt/sources.list.d/mozilla.list > /dev/null'
   # Pin Mozilla origin
-  install_step "Pin Mozilla origin" bash -lc 'printf "%s
-" "Package: *" "Pin: origin packages.mozilla.org" "Pin-Priority: 1000" | tee /etc/apt/preferences.d/mozilla > /dev/null'
+  install_step "Pin Mozilla origin" bash -lc 'printf "%s\n" "Package: *" "Pin: origin packages.mozilla.org" "Pin-Priority: 1000" | tee /etc/apt/preferences.d/mozilla > /dev/null'
   # Update and install Firefox
-  log "apt-get update..."; apt-get update -y; ok "apt-get update complete."
+  log "apt-get update..."; apt-get update; ok "apt-get update complete."
   install_step "Firefox (APT)" apt-get install -y firefox
 }
 
 ubuntu_media_setup() {
   install_step "Enable multiverse" add-apt-repository -y multiverse
-  log "apt update..."; apt update -y; ok "apt update complete.";
+  log "apt update..."; apt update; ok "apt update complete."
   install_step "ubuntu-restricted-extras" apt install -y ubuntu-restricted-extras
   install_step "Video players (Celluloid + MPV)" apt install -y celluloid mpv
 }
