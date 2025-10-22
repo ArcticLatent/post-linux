@@ -164,15 +164,19 @@ fedora_flatpak_setup() {
 
 # Media: choose apps by DE; ensure full ffmpeg stack first to avoid conflicts
 fedora_media_setup() {
-  install_step "ffmpeg swap (free→full)" bash -lc 'dnf swap -y ffmpeg-free ffmpeg --allowerasing || dnf -y install ffmpeg'
-  install_step "GStreamer plugins" dnf install -y gstreamer1-plugins-{bad-*,good-*,base} gstreamer1-plugin-openh264 gstreamer1-libav lame* --exclude=gstreamer1-plugins-bad-free-devel
-  install_step "Multimedia group" dnf group install -y multimedia
-  install_step "Sound & video group" dnf group install -y sound-and-video
+  # Core + common codecs via FFmpeg bridge
+  install_step "GStreamer (base + good + libav)" \
+    dnf -y install gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-libav
 
+  # Multimedia and sound groups (no bad plugins)
+  install_step "Multimedia group" dnf -y group install multimedia
+  install_step "Sound & video group" dnf -y group install sound-and-video
+
+  # Desktop-specific media players
   if [[ "$DESKTOP_ENV" == "kde" ]]; then
-    install_step "KDE media players (mpc + mpc-qt)" dnf install -y mpc mpc-qt
+    install_step "KDE media players (mpc + mpc-qt)" dnf -y install mpc mpc-qt
   else
-    install_step "GNOME media players (Celluloid + MPV)" dnf install -y celluloid mpv
+    install_step "GNOME media players (Celluloid + MPV)" dnf -y install celluloid mpv
   fi
 }
 
