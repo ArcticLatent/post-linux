@@ -106,6 +106,47 @@ fedora_detect() {
   return 1
 }
 
+# ---- Wait for akmods to finish building (NVIDIA kmod) ----
+fedora_wait_for_akmods() {
+  local timeout=$((25*60))   # 25 minutes worst-case
+  local elapsed=0
+
+  log "Starting akmods build (if needed)…"
+  systemctl start akmods.service 2>/dev/null || true
+
+  # Follow logs in background while we wait
+  log "Following akmods logs… (this will auto-stop when the build ends)"
+  journalctl -fu akmods &
+  local JPID=$!
+
+  # Wait until the unit is no longer 'active', or until timeout
+  while systemctl is-active --quiet akmods; do
+    sleep 2
+    elapsed=$((elapsed+2))
+    if (( elapsed >= timeout )); then
+      warn "Timeout waiting for akmods after $((timeout/60)) minutes."
+      break
+    fi
+  done
+
+  # Stop log follow
+  kill "$JPID" 2>/dev/null || true
+  wait "$JPID" 2>/dev/null || true
+
+  # Check result and show a brief summary
+  if systemctl is-failed --quiet akmods; then
+    err "akmods failed. Showing last 200 lines of logs:"
+    journalctl -u akmods -n 200 --no-pager || true
+  else
+    ok "akmods finished (state: $(systemctl show -p ActiveState -p Result akmods | tr '\n' ' ' | sed 's/ActiveState=//;s/ Result=//'))."
+  fi
+
+  # Extra sanity checks
+  if ! modinfo nvidia >/dev/null 2>&1; then
+    warn "nvidia module not found yet; it may require a reboot or will build on first boot."
+  fi
+}
+
 # Start with a real system update
 fedora_update_base() {
   log "Applying full system update (dnf -y upgrade --refresh)…"
@@ -118,8 +159,34 @@ fedora_nvidia_installed() {
 }
 
 fedora_show_nvidia_info() {
-  command -v nvidia-smi &>/dev/null && nvidia-smi || true
-  if lsmod | grep -qE '^nvidia'; then ok "Kernel modules loaded: $(lsmod | awk '/^nvidia/ {print $1}' | paste -sd, -)"; else warn "nvidia kernel modules are not currently loaded"; fi
+  # If nvidia-smi exists and succeeds, consider the driver healthy.
+  if command -v nvidia-smi &>/dev/null && nvidia-smi; then
+    ok "nvidia-smi succeeded."
+
+    # Try to show which modules are loaded (informational only).
+    if lsmod | grep -E -q '^(nvidia|nvidia_drm|nvidia_modeset|nvidia_uvm)\b'; then
+      ok "Kernel modules loaded: $(lsmod | awk '/^nvidia/ {print $1}' | paste -sd, -)"
+    else
+      # Don't warn—just note that module listing can be transient.
+      log "NVIDIA modules not visible in lsmod right now; this can be transient (persistence daemon off)."
+      log "If you want them to stay resident: sudo systemctl enable --now nvidia-persistenced"
+    fi
+    return 0
+  fi
+
+  # nvidia-smi missing or failed -> real problem
+  if ! command -v nvidia-smi &>/dev/null; then
+    warn "nvidia-smi not found in PATH."
+  else
+    warn "nvidia-smi returned non-zero; driver may not be active."
+  fi
+
+  # Check modules to aid debugging
+  if lsmod | grep -E -q '^(nvidia|nvidia_drm|nvidia_modeset|nvidia_uvm)\b'; then
+    ok "Some NVIDIA modules are loaded: $(lsmod | awk '/^nvidia/ {print $1}' | paste -sd, -)"
+  else
+    warn "NVIDIA kernel modules are not currently loaded."
+  fi
 }
 
 fedora_enable_rpmfusion() {
@@ -142,8 +209,10 @@ fedora_install_nvidia() {
     log "Applying open kernel module macro for RTX 4000+ GPUs..."; sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'; ok "Open kernel module macro applied."
   fi
   install_step "NVIDIA driver (akmod + CUDA userspace)" dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
-  warn "Building NVIDIA kernel module... this can take 5–15 minutes. You can monitor with: journalctl -f -u akmods"
-  sleep 2; fedora_show_nvidia_info
+  # Wait for akmods to complete (so the rest of the script runs with a built module)
+  fedora_wait_for_akmods
+  # Show status after build (if it’s already available)
+  fedora_show_nvidia_info
 }
 
 fedora_post_install() {
