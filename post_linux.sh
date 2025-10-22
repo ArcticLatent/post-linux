@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v0.6.3 — Fedora/Arch start with updates, DE detection added, GNOME/KDE media choices, KDE bloat prune at end.
+# v0.6.4 — Fedora/Arch start with updates, DE detection, DE-aware media,
+# Fedora ffmpeg stack conflict fixed (swap early; no ffmpeg-libs in VA-API),
+# RPM Fusion fallback mirror, quieter Flatpak remote removal, minor hardening.
 
 set -Eeuo pipefail
 
@@ -44,18 +46,17 @@ install_step() { # usage: install_step "<human-label>" <cmd> [args...]
 # ---------- Desktop Environment detection ----------
 DESKTOP_ENV="unknown"
 detect_de() {
-  local raw="${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}"
-  local lc
+  local raw lc
+  raw="${XDG_CURRENT_DESKTOP:-}${DESKTOP_SESSION:-}"
   lc="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]')"
   if [[ "$lc" == *"gnome"* ]]; then
     DESKTOP_ENV="gnome"
   elif [[ "$lc" == *"kde"* || "$lc" == *"plasma"* ]]; then
     DESKTOP_ENV="kde"
   else
-    # try loginctl as a fallback
     if command -v loginctl &>/dev/null; then
-      local cur; cur="$(loginctl show-session "$(loginctl | awk 'NR==2{print $1}')" -p Desktop -p Type 2>/dev/null || true)"
-      lc="$(printf '%s' "$cur" | tr '[:upper:]' '[:lower:]')"
+      local sid; sid="$(loginctl | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1; exit}')" || true
+      [[ -n "$sid" ]] && lc="$(loginctl show-session "$sid" -p Desktop 2>/dev/null | tr '[:upper:]' '[:lower:]')" || true
       if [[ "$lc" == *"gnome"* ]]; then DESKTOP_ENV="gnome"
       elif [[ "$lc" == *"kde"* || "$lc" == *"plasma"* ]]; then DESKTOP_ENV="kde"
       fi
@@ -107,8 +108,9 @@ fedora_detect() {
 
 # Start with a real system update
 fedora_update_base() {
-  log "Refreshing DNF metadata..."; dnf -y makecache; ok "DNF metadata updated.";
-  log "Applying full system update (dnf -y upgrade)..."; dnf -y upgrade; ok "System updated.";
+  log "Applying full system update (dnf -y upgrade --refresh)…"
+  dnf -y upgrade --refresh
+  ok "System updated."
 }
 
 fedora_nvidia_installed() {
@@ -123,10 +125,10 @@ fedora_show_nvidia_info() {
 fedora_enable_rpmfusion() {
   local ver; ver=$(. /etc/os-release; echo "$VERSION_ID")
   if ! rpm -q rpmfusion-free-release &>/dev/null; then
-    install_step "RPM Fusion (free)" dnf -y install "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${ver}.noarch.rpm"
+    install_step "RPM Fusion (free)" bash -lc 'dnf -y install "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-'${ver}'.noarch.rpm" || dnf -y install "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-'${ver}'.noarch.rpm"'
   else ok "RPM Fusion (free) already enabled"; fi
   if ! rpm -q rpmfusion-nonfree-release &>/dev/null; then
-    install_step "RPM Fusion (nonfree)" dnf -y install "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${ver}.noarch.rpm"
+    install_step "RPM Fusion (nonfree)" bash -lc 'dnf -y install "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-'${ver}'.noarch.rpm" || dnf -y install "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-'${ver}'.noarch.rpm"'
   else ok "RPM Fusion (nonfree) already enabled"; fi
 }
 
@@ -135,9 +137,10 @@ fedora_install_nvidia() {
     warn "Secure Boot is ENABLED. NVIDIA modules may not load unless you enroll a MOK or disable Secure Boot."
   fi
   if fedora_nvidia_installed; then ok "NVIDIA driver already present."; fedora_show_nvidia_info; return; fi
-  install_step "kernel headers & dev tools" dnf install -y kernel-devel kernel-headers gcc make dkms acpid libglvnd-glx libglvnd-opengl libglvnd-devel pkgconfig
+  install_step "kernel headers & dev tools" dnf install -y kernel-devel kernel-headers gcc make dkms acpid libglvnd-glx libglvnd-opengl libglvnd-devel pkgconf-pkg-config
   if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
-    log "Applying open kernel module macro for RTX 4000+ GPUs..."; sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'; ok "Open kernel module macro applied."; fi
+    log "Applying open kernel module macro for RTX 4000+ GPUs..."; sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'; ok "Open kernel module macro applied."
+  fi
   install_step "NVIDIA driver (akmod + CUDA userspace)" dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
   warn "Building NVIDIA kernel module... this can take 5–15 minutes. You can monitor with: journalctl -f -u akmods"
   sleep 2; fedora_show_nvidia_info
@@ -147,7 +150,7 @@ fedora_post_install() {
   log "Running Fedora post-install commands..."
   log "Upgrading core group..."; dnf group upgrade core -y; ok "Core group upgraded."
   log "Checking updates..."; dnf check-update || true; ok "Check complete."
-  log "Applying updates..."; dnf update -y; ok "System updated."
+  log "Applying updates..."; dnf update -y || true; ok "System updated."
   if dnf history | grep -qi kernel; then
     read -rp "Kernel update may have occurred. Reboot now? (y/n): " r; [[ "$r" =~ ^[Yy]$ ]] && reboot || warn "Please reboot manually later."
   fi
@@ -155,12 +158,13 @@ fedora_post_install() {
 }
 
 fedora_flatpak_setup() {
-  install_step "Remove Fedora Flatpak remote" bash -lc 'flatpak remote-delete fedora || true'
+  install_step "Remove Fedora Flatpak remote" bash -lc 'flatpak remote-delete fedora >/dev/null 2>&1 || true'
   install_step "Add Flathub Flatpak remote" flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 }
 
-# Media: choose apps by DE
+# Media: choose apps by DE; ensure full ffmpeg stack first to avoid conflicts
 fedora_media_setup() {
+  install_step "ffmpeg swap (free→full)" bash -lc 'dnf swap -y ffmpeg-free ffmpeg --allowerasing || dnf -y install ffmpeg'
   install_step "GStreamer plugins" dnf install -y gstreamer1-plugins-{bad-*,good-*,base} gstreamer1-plugin-openh264 gstreamer1-libav lame* --exclude=gstreamer1-plugins-bad-free-devel
   install_step "Multimedia group" dnf group install -y multimedia
   install_step "Sound & video group" dnf group install -y sound-and-video
@@ -173,8 +177,8 @@ fedora_media_setup() {
 }
 
 fedora_hwaccel_setup() {
-  install_step "VA-API libs" dnf install -y ffmpeg-libs libva libva-utils
-  install_step "NVIDIA VAAPI driver" dnf install -y nvidia-vaapi-driver
+  install_step "VA-API libs" dnf install -y libva libva-utils
+  install_step "NVIDIA VAAPI driver" bash -lc 'dnf -q repolist | grep -q rpmfusion-nonfree && dnf -y install nvidia-vaapi-driver || { echo "[WARN] rpmfusion-nonfree missing; skipping nvidia-vaapi-driver"; true; }'
 }
 
 fedora_archive_support() {
@@ -185,10 +189,24 @@ fedora_archive_support() {
 fedora_prune_kde_bloat() {
   [[ "$DESKTOP_ENV" != "kde" ]] && return 0
   log "KDE detected — pruning optional apps…"
-  local pkgs=(libreoffice-* kmahjongg kmines kpat kolourpaint skanpage akregator kmail krdc krdp neochat krfb ktnef dragon elisa-player kamoso qrca)
+
+  # 1) Remove any installed LibreOffice packages (resolve real names first)
+  mapfile -t lo_pkgs < <(rpm -qa 'libreoffice*' || true)
+  if ((${#lo_pkgs[@]})); then
+    log "Removing LibreOffice packages: ${lo_pkgs[*]}"
+    dnf remove -y "${lo_pkgs[@]}" || true
+  else
+    log "No LibreOffice packages found."
+  fi
+
+  # 2) Remove specific KDE apps if present
+  local pkgs=(kmahjongg kmines kpat kolourpaint skanpage akregator kmail krdc krdp neochat krfb ktnef dragon elisa-player kamoso qrca)
   for p in "${pkgs[@]}"; do
-    dnf remove -y "$p" || true
+    if rpm -q "$p" &>/dev/null; then
+      dnf remove -y "$p" || true
+    fi
   done
+
   ok "KDE optional apps pruned."
 }
 
@@ -202,8 +220,8 @@ run_fedora() {
   fedora_install_nvidia              # 3) drivers
   fedora_post_install                # 4) remaining post-install items
   fedora_flatpak_setup               # 5) flatpak
-  fedora_media_setup                 # 6) media (DE-aware)
-  fedora_hwaccel_setup               # 7) hwaccel
+  fedora_media_setup                 # 6) media (DE-aware) + ffmpeg swap
+  fedora_hwaccel_setup               # 7) hwaccel (no ffmpeg-libs here)
   fedora_archive_support             # 8) archives
   fedora_prune_kde_bloat             # 9) KDE prune (LAST)
 }
@@ -242,7 +260,6 @@ arch_install_nvidia() {
 }
 
 arch_post_install() {
-  # (Leave as-is — includes a second update; harmless if already current)
   install_step "base-devel + git" pacman -S --needed --noconfirm base-devel git
 
   # Build yay as the invoking (non-root) user to avoid makepkg safety error
@@ -314,7 +331,7 @@ run_arch() {
   arch_prune_kde_bloat         # 8) KDE prune (LAST)
 }
 
-# ========================= UBUNTU (unchanged except version bump header) =========================
+# ========================= UBUNTU =========================
 ubuntu_detect() {
   if [[ -f /etc/os-release ]]; then
     if grep -qiE '^ID=ubuntu' /etc/os-release || grep -qiE '^ID_LIKE=.*ubuntu' /etc/os-release || grep -qi 'Ubuntu' /etc/os-release; then
@@ -340,18 +357,22 @@ ubuntu_install_nvidia() {
     nvidia-smi || true
     return
   fi
+
   log "Updating system (apt update && apt upgrade -y)..."
   apt update
   apt upgrade -y
   ok "System packages updated."
+
   install_step "Build tools + kernel headers" bash -lc 'apt install -y build-essential linux-headers-$(uname -r)'
   if ! command -v ubuntu-drivers &>/dev/null; then
     install_step "ubuntu-drivers-common" apt install -y ubuntu-drivers-common
   fi
+
   log "Probing available NVIDIA drivers..."
   local drv_list drv_nums latest ver pkg
   drv_list=$(ubuntu-drivers list 2>/dev/null || true)
   echo "$drv_list" | sed 's/^/[INFO]  /'
+
   if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
     drv_nums=$(echo "$drv_list" | grep -oE 'nvidia-driver-[0-9]+-open' | grep -oE '[0-9]+' | sort -n | uniq)
     latest=$(echo "$drv_nums" | tail -n1)
@@ -361,12 +382,14 @@ ubuntu_install_nvidia() {
     latest=$(echo "$drv_nums" | tail -n1)
     if [[ -n "$latest" ]]; then ver="$latest"; pkg="nvidia-driver-${ver}"; fi
   fi
+
   if [[ -z "${pkg:-}" ]]; then
     warn "Could not determine a specific driver package from ubuntu-drivers list. Falling back to autoinstall."
     install_step "Auto-detected NVIDIA driver" ubuntu-drivers autoinstall
   else
     install_step "NVIDIA driver ($pkg)" apt install -y "$pkg"
   fi
+
   if [[ -f /etc/default/grub ]]; then
     if ! grep -q 'nvidia-drm.modeset=1' /etc/default/grub; then
       log "Adding nvidia-drm.modeset=1 to GRUB_CMDLINE_LINUX_DEFAULT..."
@@ -379,6 +402,7 @@ ubuntu_install_nvidia() {
   else
     warn "/etc/default/grub not found; skipping GRUB update."
   fi
+
   warn "Reboot may be required for modules to load and KMS to take effect."
 }
 
