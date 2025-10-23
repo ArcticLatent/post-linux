@@ -106,47 +106,6 @@ fedora_detect() {
   return 1
 }
 
-# ---- Wait for akmods to finish building (NVIDIA kmod) ----
-fedora_wait_for_akmods() {
-  local timeout=$((25*60))   # 25 minutes worst-case
-  local elapsed=0
-
-  log "Starting akmods build (if needed)…"
-  systemctl start akmods.service 2>/dev/null || true
-
-  # Follow logs in background while we wait
-  log "Following akmods logs… (this will auto-stop when the build ends)"
-  journalctl -fu akmods &
-  local JPID=$!
-
-  # Wait until the unit is no longer 'active', or until timeout
-  while systemctl is-active --quiet akmods; do
-    sleep 2
-    elapsed=$((elapsed+2))
-    if (( elapsed >= timeout )); then
-      warn "Timeout waiting for akmods after $((timeout/60)) minutes."
-      break
-    fi
-  done
-
-  # Stop log follow
-  kill "$JPID" 2>/dev/null || true
-  wait "$JPID" 2>/dev/null || true
-
-  # Check result and show a brief summary
-  if systemctl is-failed --quiet akmods; then
-    err "akmods failed. Showing last 200 lines of logs:"
-    journalctl -u akmods -n 200 --no-pager || true
-  else
-    ok "akmods finished (state: $(systemctl show -p ActiveState -p Result akmods | tr '\n' ' ' | sed 's/ActiveState=//;s/ Result=//'))."
-  fi
-
-  # Extra sanity checks
-  if ! modinfo nvidia >/dev/null 2>&1; then
-    warn "nvidia module not found yet; it may require a reboot or will build on first boot."
-  fi
-}
-
 # Start with a real system update
 fedora_update_base() {
   log "Applying full system update (dnf -y upgrade --refresh)…"
@@ -189,6 +148,53 @@ fedora_show_nvidia_info() {
   fi
 }
 
+# ===================== NVIDIA akmods build helpers (Fedora) =====================
+# List all installed kernel NEVRs like "6.17.4-200.fc42.x86_64"
+fedora_list_installed_kernels() {
+  rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -u
+}
+
+# Ensure kernel-devel is present for a given kernel (NEVR string)
+fedora_ensure_kernel_devel_for() {
+  local k="$1"
+  if [[ ! -e "/lib/modules/${k}/build" ]]; then
+    log "Installing kernel-devel for ${k}"
+    # Prefer the uname-r virtual provide; fall back to explicit NEVR
+    dnf -y install "kernel-devel-uname-r == ${k}" || dnf -y install "kernel-devel-${k}" || {
+      warn "Could not install kernel-devel for ${k} — skipping build for this kernel."
+      return 1
+    }
+    ok "kernel-devel for ${k} installed."
+  fi
+}
+
+# Build akmods (including NVIDIA) for *all installed kernels*
+fedora_build_akmods_for_all_kernels() {
+  local k; local had_fail=0
+  systemctl daemon-reload || true
+
+  while IFS= read -r k; do
+    [[ -z "$k" ]] && continue
+    fedora_ensure_kernel_devel_for "$k" || { had_fail=1; continue; }
+
+    log "Building akmods for kernel ${k}…"
+    if akmods --force --kernels "$k"; then
+      ok "akmods build ok for ${k}"
+    else
+      had_fail=1
+      err "akmods build failed for ${k}. Recent logs:"
+      journalctl -u akmods -n 100 --no-pager || true
+    fi
+  done < <(fedora_list_installed_kernels)
+
+  if (( had_fail )); then
+    warn "Some akmods builds failed; they will rebuild on next boot for those kernels."
+  else
+    ok "akmods successfully built for all installed kernels."
+  fi
+}
+# ===============================================================================
+
 fedora_enable_rpmfusion() {
   local ver; ver=$(. /etc/os-release; echo "$VERSION_ID")
   if ! rpm -q rpmfusion-free-release &>/dev/null; then
@@ -203,15 +209,27 @@ fedora_install_nvidia() {
   if [[ -x /usr/bin/mokutil ]] && mokutil --sb-state 2>/dev/null | grep -qi 'enabled'; then
     warn "Secure Boot is ENABLED. NVIDIA modules may not load unless you enroll a MOK or disable Secure Boot."
   fi
-  if fedora_nvidia_installed; then ok "NVIDIA driver already present."; fedora_show_nvidia_info; return; fi
-  install_step "kernel headers & dev tools" dnf install -y kernel-devel kernel-headers gcc make dkms acpid libglvnd-glx libglvnd-opengl libglvnd-devel pkgconf-pkg-config
-  if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
-    log "Applying open kernel module macro for RTX 4000+ GPUs..."; sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'; ok "Open kernel module macro applied."
+
+  if fedora_nvidia_installed; then
+    ok "NVIDIA driver already present."
+    fedora_show_nvidia_info
+    return
   fi
+
+  install_step "kernel headers & dev tools" dnf install -y kernel-devel kernel-headers gcc make dkms acpid libglvnd-glx libglvnd-opengl libglvnd-devel pkgconfig
+
+  if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
+    log "Applying open kernel module macro for RTX 4000+ GPUs..."
+    sh -c 'echo "%_with_kmod_nvidia_open 1" > /etc/rpm/macros.nvidia-kmod'
+    ok "Open kernel module macro applied."
+  fi
+
   install_step "NVIDIA driver (akmod + CUDA userspace)" dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
-  # Wait for akmods to complete (so the rest of the script runs with a built module)
-  fedora_wait_for_akmods
-  # Show status after build (if it’s already available)
+
+  # NEW: build akmods for *all installed kernels* (handles both current and newly updated kernels)
+  fedora_build_akmods_for_all_kernels
+
+  # Status
   fedora_show_nvidia_info
 }
 
