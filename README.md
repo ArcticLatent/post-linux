@@ -12,7 +12,7 @@ A fully automated **post-install script** that configures your system for produc
 - ⚙️ Installs the latest **NVIDIA** drivers (open or proprietary)
 - 🧩 Replaces **Snap with Flatpak** on Ubuntu
 - 🌐 Reinstalls Firefox via Mozilla’s official APT repository
-- 🎬 Enables media codecs, **Celluloid + MPV**, and GPU acceleration
+- 🎬 Enables media codecs, **Celluloid + MPV for GNOME**, **MPC-QT + MPV for KDE Plasma**, and GPU acceleration
 - 🗜️ Adds archive tools (`7zip`, `rar`, `file-roller`, etc.)
 - 🧱 Clean `Installing... / Installed.` feedback for every step
 
@@ -117,4 +117,3 @@ Follow the interactive prompts to choose your distro and GPU series.
 
 MIT License © 2025 Burce Boran  
 Contributions welcome — open a PR or issue!
-
