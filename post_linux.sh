@@ -338,7 +338,9 @@ arch_nvidia_installed() { if command -v nvidia-smi &>/dev/null && nvidia-smi &>/
 
 arch_show_nvidia_info() {
   command -v nvidia-smi &>/dev/null && nvidia-smi || true
-  if lsmod | grep -qE '^nvidia'; then ok "Kernel modules loaded: $(lsmod | awk '/^nvidia/ {print $1}' | paste -sd, -)"; else warn "nvidia kernel modules are not currently loaded"; fi
+  if lsmod | grep -qE '^nvidia'; then
+    ok "Kernel modules loaded: $(lsmod | awk '/^nvidia/ {print $1}' | paste -sd, -)"
+  fi
 }
 
 arch_install_nvidia() {
@@ -353,27 +355,24 @@ arch_install_nvidia() {
 arch_post_install() {
   install_step "base-devel + git" pacman -S --needed --noconfirm base-devel git
 
+  if command -v yay &>/dev/null; then
+    ok "yay already installed; skipping build."
+    return
+  fi
+
   # Build yay as the invoking (non-root) user to avoid makepkg safety error
   local invu; invu=$(get_invoking_user)
   if [[ -z "$invu" || "$invu" == "root" ]]; then
     err "Cannot determine a non-root user to build yay. Please run this script with sudo from your regular user."; exit 1
   fi
 
-  log "Cloning yay (as $invu)..."
-  run_as_user "$invu" "cd ~; [[ -d yay ]] || git clone https://aur.archlinux.org/yay.git"
-  ok "yay repository ready."
+  log "Preparing yay sources (as $invu)..."
+  run_as_user "$invu" "cd ~; if [[ -d yay/.git ]]; then cd yay && git fetch origin yay && git checkout -f yay && git reset --hard origin/yay; else git clone --branch yay --single-branch https://github.com/archlinux/aur.git yay; fi"
+  ok "yay sources ready."
 
-  log "Building yay package (as $invu)..."
-  run_as_user "$invu" "cd ~/yay && makepkg -sf --noconfirm"
-  ok "yay package built."
-
-  local pkg
-  pkg=$(ls -t /home/"$invu"/yay/*.pkg.tar.* 2>/dev/null | head -n1 || true)
-  if [[ -n "$pkg" ]]; then
-    install_step "Install yay package" pacman -U --noconfirm "$pkg"
-  else
-    err "Failed to locate built yay package for installation."; exit 1
-  fi
+  log "Building and installing yay (as $invu)..."
+  run_as_user "$invu" "cd ~/yay && makepkg -si --noconfirm"
+  ok "yay installed."
 }
 
 arch_flatpak_setup() { install_step "Flatpak" pacman -S --noconfirm --needed flatpak; }
