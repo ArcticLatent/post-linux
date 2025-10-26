@@ -377,11 +377,32 @@ arch_post_install() {
 
 arch_flatpak_setup() { install_step "Flatpak" pacman -S --noconfirm --needed flatpak; }
 
+arch_install_mpc_qt() {
+  if pacman -Q mpc-qt-bin &>/dev/null; then
+    ok "mpc-qt-bin already installed."
+    return
+  fi
+
+  local invu; invu=$(get_invoking_user)
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    err "Cannot determine a non-root user to build mpc-qt-bin. Please run this script with sudo from your regular user."; exit 1
+  fi
+
+  log "Preparing mpc-qt-bin AUR sources (as $invu)..."
+  run_as_user "$invu" "cd ~; if [[ -d mpc-qt-bin/.git ]]; then cd mpc-qt-bin && git fetch origin mpc-qt-bin && git checkout -f mpc-qt-bin && git reset --hard origin/mpc-qt-bin; else git clone --branch mpc-qt-bin --single-branch https://github.com/archlinux/aur.git mpc-qt-bin; fi"
+  ok "mpc-qt-bin sources ready."
+
+  log "Building and installing mpc-qt-bin (as $invu)..."
+  run_as_user "$invu" "cd ~/mpc-qt-bin && makepkg -si --noconfirm"
+  ok "mpc-qt-bin installed."
+}
+
 # Media: choose apps by DE
 arch_media_setup() {
   install_step "GStreamer (Arch)" pacman -S --noconfirm --needed gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gstreamer-vaapi
   if [[ "$DESKTOP_ENV" == "kde" ]]; then
-    install_step "KDE media players (mpc + mpc-qt)" pacman -S --noconfirm --needed mpc mpc-qt
+    install_step "MPV (video player)" pacman -S --noconfirm --needed mpv
+    arch_install_mpc_qt
   else
     install_step "GNOME media players (Celluloid + MPV)" pacman -S --noconfirm --needed celluloid mpv
   fi
