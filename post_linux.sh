@@ -375,6 +375,35 @@ arch_post_install() {
   ok "yay installed."
 }
 
+arch_firewall_setup() {
+  if pacman -Q ufw &>/dev/null; then
+    ok "UFW already installed."
+  else
+    install_step "UFW firewall" pacman -S --noconfirm --needed ufw
+  fi
+
+  local status="inactive"
+  status="$(ufw status 2>/dev/null | awk 'NR==1 {print $2}')"
+
+  if [[ "$status" != "active" ]]; then
+    log "Applying baseline UFW policy (deny incoming, allow outgoing)..."
+    ufw default deny incoming
+    ufw default allow outgoing
+    if systemctl cat sshd.service >/dev/null 2>&1; then
+      log "Allowing OpenSSH through UFW..."
+      ufw allow OpenSSH
+    fi
+    ufw --force enable
+    ok "UFW enabled."
+  else
+    ok "UFW already active; leaving existing rules in place."
+  fi
+
+  log "Ensuring UFW systemd unit is enabled..."
+  systemctl enable --now ufw
+  ok "UFW systemd unit enabled."
+}
+
 arch_flatpak_setup() { install_step "Flatpak" pacman -S --noconfirm --needed flatpak; }
 
 arch_install_mpc_qt() {
@@ -435,11 +464,12 @@ run_arch() {
   arch_update_base             # 1) system update FIRST
   arch_install_nvidia          # 2) drivers
   arch_post_install            # 3) dev tools + yay
-  arch_flatpak_setup           # 4) flatpak
-  arch_media_setup             # 5) media (DE-aware)
-  arch_hwaccel_setup           # 6) hwaccel
-  arch_archive_support         # 7) archives
-  arch_prune_kde_bloat         # 8) KDE prune (LAST)
+  arch_firewall_setup          # 4) firewall
+  arch_flatpak_setup           # 5) flatpak
+  arch_media_setup             # 6) media (DE-aware)
+  arch_hwaccel_setup           # 7) hwaccel
+  arch_archive_support         # 8) archives
+  arch_prune_kde_bloat         # 9) KDE prune (LAST)
 }
 
 # ========================= UBUNTU =========================
