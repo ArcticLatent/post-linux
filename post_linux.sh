@@ -276,6 +276,25 @@ fedora_archive_support() {
   install_step "Archive tools (7zip + unrar)" dnf install -y p7zip p7zip-plugins unrar
 }
 
+fedora_prune_gnome_apps() {
+  [[ "$DESKTOP_ENV" == "gnome" ]] || return 0
+  local candidates=(epiphany gnome-showtime showtime gnome-maps htop gnome-snapshot snapshot simple-scan vim vim-enhanced)
+  local remove=()
+  local pkg
+  for pkg in "${candidates[@]}"; do
+    if rpm -q "$pkg" &>/dev/null; then
+      remove+=("$pkg")
+    fi
+  done
+  if ((${#remove[@]})); then
+    log "Removing GNOME extras via dnf: ${remove[*]}"
+    dnf remove -y "${remove[@]}"
+    ok "GNOME extras removed."
+  else
+    ok "No GNOME extras to prune."
+  fi
+}
+
 # KDE bloat prune (last step)
 fedora_prune_kde_bloat() {
   [[ "$DESKTOP_ENV" != "kde" ]] && return 0
@@ -314,7 +333,8 @@ run_fedora() {
   fedora_media_setup                 # 6) media (DE-aware) + ffmpeg swap
   fedora_hwaccel_setup               # 7) hwaccel (no ffmpeg-libs here)
   fedora_archive_support             # 8) archives
-  fedora_prune_kde_bloat             # 9) KDE prune (LAST)
+  fedora_prune_gnome_apps            # 9) GNOME prune (if needed)
+  fedora_prune_kde_bloat             # 10) KDE prune (LAST)
 }
 
 # ========================= ARCH =========================
@@ -337,7 +357,6 @@ arch_update_base() {
 arch_nvidia_installed() { if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then return 0; fi; return 1; }
 
 arch_show_nvidia_info() {
-  command -v nvidia-smi &>/dev/null && nvidia-smi || true
   if lsmod | grep -qE '^nvidia'; then
     ok "Kernel modules loaded: $(lsmod | awk '/^nvidia/ {print $1}' | paste -sd, -)"
   fi
@@ -391,7 +410,12 @@ arch_firewall_setup() {
     ufw default allow outgoing
     if systemctl cat sshd.service >/dev/null 2>&1; then
       log "Allowing OpenSSH through UFW..."
-      ufw allow OpenSSH
+      if ufw app info OpenSSH >/dev/null 2>&1; then
+        ufw allow OpenSSH
+      else
+        warn "UFW profile 'OpenSSH' not found; allowing tcp/22 instead."
+        ufw allow 22/tcp
+      fi
     fi
     ufw --force enable
     ok "UFW enabled."
@@ -441,6 +465,25 @@ arch_hwaccel_setup() { install_step "NVIDIA VAAPI driver" pacman -S --noconfirm 
 
 arch_archive_support() { install_step "Archive tools (tar, zip, 7zip)" pacman -S --noconfirm --needed tar gzip zip unzip p7zip; }
 
+arch_prune_gnome_apps() {
+  [[ "$DESKTOP_ENV" == "gnome" ]] || return 0
+  local candidates=(epiphany gnome-web epiphany-browser gnome-showtime showtime gnome-maps htop gnome-snapshot snapshot simple-scan vim)
+  local remove=()
+  local pkg
+  for pkg in "${candidates[@]}"; do
+    if pacman -Qi "$pkg" &>/dev/null; then
+      remove+=("$pkg")
+    fi
+  done
+  if ((${#remove[@]})); then
+    log "Removing GNOME extras via pacman: ${remove[*]}"
+    pacman -Rsn --noconfirm "${remove[@]}"
+    ok "GNOME extras removed."
+  else
+    ok "No GNOME extras to prune."
+  fi
+}
+
 # KDE bloat prune (last step)
 arch_prune_kde_bloat() {
   [[ "$DESKTOP_ENV" != "kde" ]] && return 0
@@ -469,7 +512,8 @@ run_arch() {
   arch_media_setup             # 6) media (DE-aware)
   arch_hwaccel_setup           # 7) hwaccel
   arch_archive_support         # 8) archives
-  arch_prune_kde_bloat         # 9) KDE prune (LAST)
+  arch_prune_gnome_apps        # 9) GNOME prune (if needed)
+  arch_prune_kde_bloat         # 10) KDE prune (LAST)
 }
 
 # ========================= UBUNTU =========================
@@ -583,6 +627,25 @@ ubuntu_hwaccel_setup() { install_step "NVIDIA VAAPI driver" apt install -y nvidi
 
 ubuntu_archive_support() { install_step "Archive tools (7zip, file-roller, rar)" apt install -y 7zip file-roller rar; }
 
+ubuntu_prune_gnome_apps() {
+  [[ "$DESKTOP_ENV" == "gnome" ]] || return 0
+  local candidates=(epiphany-browser gnome-web epiphany gnome-showtime showtime gnome-maps htop gnome-snapshot snapshot simple-scan vim)
+  local remove=()
+  local pkg
+  for pkg in "${candidates[@]}"; do
+    if dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+      remove+=("$pkg")
+    fi
+  done
+  if ((${#remove[@]})); then
+    log "Removing GNOME extras via apt: ${remove[*]}"
+    apt remove -y "${remove[@]}"
+    ok "GNOME extras removed."
+  else
+    ok "No GNOME extras to prune."
+  fi
+}
+
 run_ubuntu() {
   if ! ubuntu_detect; then
     err "OS mismatch: You selected Ubuntu, but this system does not appear to be Ubuntu. Aborting."; exit 1
@@ -595,6 +658,7 @@ run_ubuntu() {
   ubuntu_media_setup
   ubuntu_hwaccel_setup
   ubuntu_archive_support
+  ubuntu_prune_gnome_apps
 }
 
 # ------------------------------ Main ------------------------------
