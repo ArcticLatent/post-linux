@@ -604,7 +604,15 @@ mint_install_nvidia() {
   fi
 }
 
-mint_post_install() { log "(Awaiting your MINT_POST_INSTALL commands — currently empty)"; ok "Linux Mint post-install completed."; }
+mint_post_install() {
+  log "Setting runtime swappiness to 10 (favor RAM over swap)..."
+  sysctl vm.swappiness=10
+  ok "Runtime swappiness set to 10."
+
+  install_step "Persist swappiness=10" bash -lc "printf 'vm.swappiness=10\n' | tee /etc/sysctl.d/99-swappiness.conf > /dev/null"
+  install_step "Mint core utilities" apt install -y unzip ntfs-3g p7zip curl bzip2 tar exfat-fuse wget unrar gstreamer1.0-vaapi
+  ok "Linux Mint post-install tweaks applied."
+}
 
 mint_media_setup() {
   if dpkg-query -W -f='${Status}' mint-meta-codecs 2>/dev/null | grep -q "install ok installed"; then

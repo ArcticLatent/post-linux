@@ -74,6 +74,9 @@ Linux Mint 22+ systems are prepped for gaming and creative work with minimal man
   - RTX 3000 and older → latest `nvidia-driver-###`  
   Falls back to `ubuntu-drivers autoinstall` if detection ever fails.
 
+- 💾 **Optimizes memory and filesystem tooling**  
+  Sets `vm.swappiness=10` (runtime + persistent) so RAM is preferred over swap, then installs `unzip`, `ntfs-3g`, `p7zip`, `curl`, `bzip2`, `tar`, `exfat-fuse`, `wget`, `unrar`, and `gstreamer1.0-vaapi`.
+
 - 🎬 **Maximizes multimedia support**  
   Ensures the `mint-meta-codecs` bundle is installed so H.264, HEVC, and other formats play instantly.
 
