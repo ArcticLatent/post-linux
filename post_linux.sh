@@ -73,11 +73,13 @@ choose_os() {
   echo "  1) Ubuntu"
   echo "  2) Fedora"
   echo "  3) Arch"
-  read -rp "Enter number [1-3]: " ans
+  echo "  4) Linux Mint"
+  read -rp "Enter number [1-4]: " ans
   case "$ans" in
     1) OS_SEL="ubuntu" ;;
     2) OS_SEL="fedora" ;;
     3) OS_SEL="arch" ;;
+    4) OS_SEL="mint" ;;
     *) err "Invalid selection"; exit 1 ;;
   esac
   ok "OS selected: $OS_SEL"
@@ -516,6 +518,121 @@ run_arch() {
   arch_prune_kde_bloat         # 10) KDE prune (LAST)
 }
 
+# ========================= LINUX MINT =========================
+mint_detect() {
+  if [[ -f /etc/os-release ]]; then
+    if grep -qiE '^ID=linuxmint' /etc/os-release || grep -qiE '^ID_LIKE=.*linuxmint' /etc/os-release || grep -qi 'Linux Mint' /etc/os-release; then
+      return 0
+    fi
+  fi
+  if [[ -f /etc/lsb-release ]] && grep -qi 'linuxmint' /etc/lsb-release; then
+    return 0
+  fi
+  return 1
+}
+
+mint_update_base() {
+  log "Ensuring 32-bit (i386) architecture support..."
+  if ! dpkg --print-foreign-architectures | grep -qx 'i386'; then
+    dpkg --add-architecture i386
+    ok "i386 architecture enabled."
+  else
+    ok "i386 architecture already enabled."
+  fi
+  log "Updating package lists..."; apt update; ok "apt update complete.";
+  log "Upgrading packages..."; apt upgrade -y; ok "apt upgrade complete.";
+  install_step "software-properties-common" apt install -y software-properties-common
+}
+
+mint_install_nvidia() {
+  if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+    ok "NVIDIA driver already present and working."
+    nvidia-smi || true
+    return
+  fi
+
+  install_step "graphics-drivers PPA" add-apt-repository -y ppa:graphics-drivers/ppa
+  log "Refreshing package lists after adding PPA..."; apt update; ok "apt update complete."
+
+  install_step "Kernel headers, build-essential, dkms" bash -lc 'apt install -y "linux-headers-$(uname -r)" build-essential dkms'
+  if ! command -v ubuntu-drivers &>/dev/null; then
+    install_step "ubuntu-drivers-common" apt install -y ubuntu-drivers-common
+  fi
+
+  log "Detecting available NVIDIA drivers..."
+  local drv_list ver pkg
+  drv_list=$(ubuntu-drivers devices 2>/dev/null || true)
+  echo "$drv_list" | sed 's/^/[INFO]  /'
+
+  if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
+    ver=$(printf '%s\n' "$drv_list" | awk '
+      {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^nvidia-driver-[0-9]+-open$/) {
+            split($i, parts, "-")
+            if (parts[3] + 0 > max) { max = parts[3] + 0 }
+          }
+        }
+      }
+      END { if (max != "") { printf "%d", max } }
+    ')
+    if [[ -n "$ver" ]]; then pkg="nvidia-driver-${ver}-open"; fi
+  else
+    ver=$(printf '%s\n' "$drv_list" | awk '
+      {
+        for (i = 1; i <= NF; i++) {
+          if ($i ~ /^nvidia-driver-[0-9]+$/) {
+            split($i, parts, "-")
+            if (parts[3] + 0 > max) { max = parts[3] + 0 }
+          }
+        }
+      }
+      END { if (max != "") { printf "%d", max } }
+    ')
+    if [[ -n "$ver" ]]; then pkg="nvidia-driver-${ver}"; fi
+  fi
+
+  if [[ -z "${pkg:-}" ]]; then
+    warn "Could not determine a specific driver package from ubuntu-drivers output. Falling back to autoinstall."
+    install_step "Auto-detected NVIDIA driver" ubuntu-drivers autoinstall
+  else
+    if [[ "$pkg" == *"-open" ]]; then
+      install_step "NVIDIA open driver ($pkg)" apt install -y "$pkg"
+    else
+      install_step "NVIDIA driver ($pkg)" apt install -y "$pkg"
+    fi
+  fi
+}
+
+mint_post_install() { log "(Awaiting your MINT_POST_INSTALL commands — currently empty)"; ok "Linux Mint post-install completed."; }
+
+mint_media_setup() {
+  if dpkg-query -W -f='${Status}' mint-meta-codecs 2>/dev/null | grep -q "install ok installed"; then
+    ok "mint-meta-codecs already installed."
+  else
+    install_step "mint-meta-codecs" apt install -y mint-meta-codecs
+  fi
+
+  if ! command -v flatpak &>/dev/null; then
+    install_step "Flatpak" apt install -y flatpak
+  fi
+
+  local invu
+  invu="$(get_invoking_user)"
+  install_step "Showtime (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update flathub org.gnome.Showtime"
+}
+
+run_mint() {
+  if ! mint_detect; then
+    err "OS mismatch: You selected Linux Mint, but this system does not appear to be Linux Mint. Aborting."; exit 1
+  fi
+  log "Starting Linux Mint flow..."
+  mint_update_base
+  mint_install_nvidia
+  mint_post_install
+  mint_media_setup
+}
+
 # ========================= UBUNTU =========================
 ubuntu_detect() {
   if [[ -f /etc/os-release ]]; then
@@ -670,6 +787,7 @@ main() {
   case "$OS_SEL" in
     fedora) run_fedora ;;
     ubuntu) run_ubuntu ;;
+    mint)   run_mint ;;
     arch)   run_arch ;;
   esac
   ok "All done for $OS_SEL."
