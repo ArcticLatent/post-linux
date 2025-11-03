@@ -622,6 +622,8 @@ mint_media_setup() {
   install_step "Showtime (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update flathub org.gnome.Showtime"
 }
 
+mint_hwaccel_setup() { install_step "NVIDIA VAAPI driver" apt install -y nvidia-vaapi-driver; }
+
 run_mint() {
   if ! mint_detect; then
     err "OS mismatch: You selected Linux Mint, but this system does not appear to be Linux Mint. Aborting."; exit 1
@@ -631,6 +633,7 @@ run_mint() {
   mint_install_nvidia
   mint_post_install
   mint_media_setup
+  mint_hwaccel_setup
 }
 
 # ========================= UBUNTU =========================

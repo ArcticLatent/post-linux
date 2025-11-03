@@ -1,6 +1,6 @@
 # 🧊 Post-Linux — Universal Linux Post-Install Script
 
-A fully automated **post-install script** that configures your system for production and creative workflows across **Fedora**, **Arch**, and **Ubuntu**.
+A fully automated **post-install script** that configures your system for production and creative workflows across **Fedora**, **Arch**, **Ubuntu**, and **Linux Mint**.
 
 > 🎯 Includes NVIDIA drivers, Flatpak setup, media codecs, hardware acceleration, archive utilities, and more — with clean progress feedback.
 
@@ -8,9 +8,10 @@ A fully automated **post-install script** that configures your system for produc
 
 ## 🚀 Features
 
-- 🧠 Detects your OS (**Fedora**, **Arch**, or **Ubuntu**)
+- 🧠 Detects your OS (**Fedora**, **Arch**, **Ubuntu**, or **Linux Mint**)
 - ⚙️ Installs the latest **NVIDIA** drivers (open or proprietary)
 - 🧩 Replaces **Snap with Flatpak** on Ubuntu
+- 🌱 Prepares **Linux Mint** with i386 support, latest NVIDIA drivers, and curated multimedia defaults
 - 🌐 Reinstalls Firefox via Mozilla’s official APT repository
 - 🎬 Enables media codecs, **Celluloid + MPV for GNOME**, **MPC-QT + MPV for KDE Plasma**, and GPU acceleration
 - 🗜️ Adds archive tools (`7zip`, `rar`, `file-roller`, etc.)
@@ -25,6 +26,7 @@ A fully automated **post-install script** that configures your system for produc
 | ![Fedora](https://img.shields.io/badge/Fedora-40%2B-0A6CF5?logo=fedora&logoColor=white&style=flat-square) | ✅ akmod + CUDA | ✅ Flatpak | ✅ GStreamer + ffmpeg | ✅ |
 | ![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793D1?logo=archlinux&logoColor=white&style=flat-square) | ✅ open/proprietary | ✅ Flatpak | ✅ GStreamer | ✅ |
 | ![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%2B-E95420?logo=ubuntu&logoColor=white&style=flat-square) | ✅ Auto-detects latest NVIDIA open / proprietary driver | ✅ Snap→Flatpak | ✅ Multiverse + Extras | ✅ |
+| ![Linux Mint](https://img.shields.io/badge/Linux_Mint-22%2B-87CF3E?logo=linux-mint&logoColor=white&style=flat-square) | ✅ graphics-drivers PPA (open / proprietary) | ✅ Flathub + Showtime | ✅ mint-meta-codecs | ✅ |
 
 ---
 
@@ -56,6 +58,30 @@ Fedora users benefit from a streamlined, fully native NVIDIA and multimedia setu
   Ensures Flatpak is enabled and Flathub is configured as the primary source for desktop applications.
 
 Together, these ensure a smooth Fedora experience with open driver support, media acceleration, and production-ready utilities.
+
+---
+
+## 🧊 Linux Mint-Specific Features
+
+Linux Mint 22+ systems are prepped for gaming and creative work with minimal manual intervention:
+
+- 🧱 **Enables 32-bit (i386) architecture and updates immediately**  
+  Adds the i386 architecture if missing, then runs a full `apt update && apt upgrade -y` so your base system is current before drivers land.
+
+- ⚙️ **Installs NVIDIA drivers via the graphics-drivers PPA**  
+  Adds the official Graphics Drivers PPA, installs `linux-headers-$(uname -r)`, `build-essential`, and `dkms`, then picks the right driver:  
+  - RTX 4000/5000 → latest `nvidia-driver-###-open`  
+  - RTX 3000 and older → latest `nvidia-driver-###`  
+  Falls back to `ubuntu-drivers autoinstall` if detection ever fails.
+
+- 🎬 **Maximizes multimedia support**  
+  Ensures the `mint-meta-codecs` bundle is installed so H.264, HEVC, and other formats play instantly.
+
+- 🚀 **Enables NVIDIA VAAPI playback**  
+  Installs `nvidia-vaapi-driver` so compatible players can tap the GPU for decoding workloads.
+
+- 📺 **Installs GNOME Showtime from Flathub**  
+  Verifies Flatpak is present, then installs `org.gnome.Showtime` for a modern video playback experience.
 
 ---
 
