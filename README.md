@@ -26,7 +26,7 @@ A fully automated **post-install script** that configures your system for produc
 | ![Fedora](https://img.shields.io/badge/Fedora-40%2B-0A6CF5?logo=fedora&logoColor=white&style=flat-square) | ✅ akmod + CUDA | ✅ Flatpak | ✅ GStreamer + ffmpeg | ✅ |
 | ![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793D1?logo=archlinux&logoColor=white&style=flat-square) | ✅ open/proprietary | ✅ Flatpak | ✅ GStreamer | ✅ |
 | ![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%2B-E95420?logo=ubuntu&logoColor=white&style=flat-square) | ✅ Auto-detects latest NVIDIA open / proprietary driver | ✅ Snap→Flatpak | ✅ Multiverse + Extras | ✅ |
-| ![Linux Mint](https://img.shields.io/badge/Linux_Mint-22%2B-87CF3E?logo=linux-mint&logoColor=white&style=flat-square) | ✅ graphics-drivers PPA (open / proprietary) | ✅ Flathub + Showtime | ✅ mint-meta-codecs | ✅ |
+| ![Linux Mint](https://img.shields.io/badge/Linux_Mint-22%2B-87CF3E?logo=linux-mint&logoColor=white&style=flat-square) | ✅ graphics-drivers PPA (open / proprietary) | ✅ Flatpak | ✅ mint-meta-codecs | ✅ |
 
 ---
 
