@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v1.0 — baseline with self-update support, DE detection, DE-aware media,
+# v1.1 — baseline with self-update support, DE detection, DE-aware media,
 # Fedora ffmpeg stack conflict fixed (swap early; no ffmpeg-libs in VA-API),
 # RPM Fusion fallback mirror, quieter Flatpak remote removal, minor hardening.
 
