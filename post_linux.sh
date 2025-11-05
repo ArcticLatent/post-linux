@@ -6,7 +6,7 @@
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.0"
+SCRIPT_VERSION="1.1"
 SCRIPT_SOURCE_URL_DEFAULT="https://raw.githubusercontent.com/ArcticLatent/post-linux/main/post_linux.sh"
 SCRIPT_SOURCE_URL="${POST_LINUX_SOURCE:-$SCRIPT_SOURCE_URL_DEFAULT}"
 
