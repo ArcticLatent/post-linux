@@ -133,12 +133,17 @@ perform_self_update() {
   local new_version="$1"
   shift || true
   local remaining_args=("$@")
-  local script_path temp_file
+  local script_path temp_file original_uid="" original_gid=""
 
   script_path="$(resolve_script_path "$0")" || script_path="$0"
   if [[ -z "$script_path" ]]; then
     err "Unable to resolve script path for self-update."
     return 1
+  fi
+
+  if [[ -e "$script_path" ]] && command -v stat >/dev/null 2>&1; then
+    original_uid="$(stat -c '%u' "$script_path" 2>/dev/null || true)"
+    original_gid="$(stat -c '%g' "$script_path" 2>/dev/null || true)"
   fi
 
   if [[ ! -w "$script_path" ]]; then
@@ -159,6 +164,28 @@ perform_self_update() {
 
   chmod +x "$temp_file" 2>/dev/null || true
   if mv "$temp_file" "$script_path"; then
+    local ownership_spec="" invoking_user="" invoking_group=""
+    if [[ -n "$original_uid" ]]; then
+      ownership_spec="$original_uid"
+      if [[ -n "$original_gid" ]]; then
+        ownership_spec+=":$original_gid"
+      fi
+      if ! chown "$ownership_spec" "$script_path" 2>/dev/null; then
+        warn "Updated script installed but ownership restoration to $ownership_spec failed."
+      fi
+    elif [[ $EUID -eq 0 ]]; then
+      invoking_user="$(get_invoking_user)"
+      if [[ -n "$invoking_user" && "$invoking_user" != "root" ]]; then
+        invoking_group="$(id -gn "$invoking_user" 2>/dev/null || true)"
+        if [[ -n "$invoking_group" ]]; then
+          if ! chown "$invoking_user:$invoking_group" "$script_path" 2>/dev/null; then
+            warn "Updated script installed but ownership change to $invoking_user:$invoking_group failed."
+          fi
+        elif ! chown "$invoking_user" "$script_path" 2>/dev/null; then
+          warn "Updated script installed but ownership change to $invoking_user failed."
+        fi
+      fi
+    fi
     ok "Script updated to version ${new_version:-unknown}."
     exec "$script_path" "${remaining_args[@]}"
   else
