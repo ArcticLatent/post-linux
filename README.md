@@ -134,6 +134,17 @@ Follow the interactive prompts to choose your distro and GPU series.
 
 ---
 
+## ♻️ Updating the Script
+
+- `./post_linux.sh --check-update` — see if a newer release is available.
+- `./post_linux.sh --update` — download the latest copy and rerun automatically.
+- `./post_linux.sh --version` — print the currently installed version.
+- Set `POST_LINUX_SOURCE` to point at an alternate raw URL if you host your own fork.
+
+The script compares its local `SCRIPT_VERSION` against the remote source and offers to self-update before running the main workflow.
+
+---
+
 ## ⚡ Requirements
 
 - Internet connection  
