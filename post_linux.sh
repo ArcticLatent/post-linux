@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v0.6.4 — Fedora/Arch start with updates, DE detection, DE-aware media,
+# v1.0 — baseline with self-update support, DE detection, DE-aware media,
 # Fedora ffmpeg stack conflict fixed (swap early; no ffmpeg-libs in VA-API),
 # RPM Fusion fallback mirror, quieter Flatpak remote removal, minor hardening.
 
 set -Eeuo pipefail
+
+SCRIPT_VERSION="1.0"
+SCRIPT_SOURCE_URL_DEFAULT="https://raw.githubusercontent.com/ArcticLatent/post-linux/main/post_linux.sh"
+SCRIPT_SOURCE_URL="${POST_LINUX_SOURCE:-$SCRIPT_SOURCE_URL_DEFAULT}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log()  { echo -e "${BLUE}[INFO]${NC} $*"; }
@@ -33,6 +37,213 @@ get_invoking_user() {
 run_as_user() { # usage: run_as_user <username> "cmd..."
   local u="$1"; shift
   sudo -u "$u" bash -lc "$*"
+}
+
+# ---------- Self-update helpers ----------
+print_usage() {
+  cat <<'EOF'
+Usage: post_linux.sh [--update] [--check-update] [--version]
+  --update        Download and apply the latest script, then restart.
+  --check-update  Check whether a newer script version is available.
+  --version       Print the current script version.
+  --help          Show this message and exit.
+EOF
+}
+
+resolve_script_path() {
+  local script="$1" resolved=""
+  if command -v realpath >/dev/null 2>&1; then
+    resolved="$(realpath "$script" 2>/dev/null || true)"
+  elif command -v readlink >/dev/null 2>&1; then
+    resolved="$(readlink -f "$script" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$resolved" ]]; then
+    printf '%s\n' "$resolved"
+    return 0
+  fi
+
+  if [[ "$script" == */* ]]; then
+    (
+      cd "$(dirname "$script")" >/dev/null 2>&1 || return 1
+      printf '%s/%s\n' "$(pwd)" "$(basename "$script")"
+    )
+  else
+    printf '%s/%s\n' "$(pwd)" "$script"
+  fi
+}
+
+fetch_latest_version() {
+  local remote_contents="" version_line=""
+
+  if [[ -z "${SCRIPT_SOURCE_URL:-}" ]]; then
+    warn "SCRIPT_SOURCE_URL is not defined; skipping update check."
+    return 1
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    if ! remote_contents="$(curl -fsSL "$SCRIPT_SOURCE_URL" 2>/dev/null)"; then
+      return 1
+    fi
+  elif command -v wget >/dev/null 2>&1; then
+    if ! remote_contents="$(wget -qO- "$SCRIPT_SOURCE_URL" 2>/dev/null)"; then
+      return 1
+    fi
+  else
+    warn "Cannot check for updates automatically because neither curl nor wget is available."
+    return 1
+  fi
+
+  version_line="$(printf '%s\n' "$remote_contents" | grep -m1 '^SCRIPT_VERSION=' || true)"
+  if [[ -z "$version_line" ]]; then
+    return 1
+  fi
+
+  version_line="${version_line#SCRIPT_VERSION=}"
+  version_line="${version_line#\"}"
+  version_line="${version_line#\'}"
+  version_line="${version_line%\"}"
+  version_line="${version_line%\'}"
+
+  if [[ -z "$version_line" ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "$version_line"
+}
+
+download_remote_script() {
+  local url="$1" dest="$2"
+
+  if [[ -z "$url" ]]; then
+    return 1
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$url" -o "$dest" 2>/dev/null || return 1
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$dest" "$url" 2>/dev/null || return 1
+  else
+    warn "Cannot download updates because neither curl nor wget is available."
+    return 1
+  fi
+}
+
+perform_self_update() {
+  local new_version="$1"
+  shift || true
+  local remaining_args=("$@")
+  local script_path temp_file
+
+  script_path="$(resolve_script_path "$0")" || script_path="$0"
+  if [[ -z "$script_path" ]]; then
+    err "Unable to resolve script path for self-update."
+    return 1
+  fi
+
+  if [[ ! -w "$script_path" ]]; then
+    err "Cannot self-update: insufficient permissions to modify $script_path."
+    return 1
+  fi
+
+  temp_file="$(mktemp "${TMPDIR:-/tmp}/post_linux.sh.XXXXXX")" || {
+    err "Unable to create temporary file for update."
+    return 1
+  }
+
+  if ! download_remote_script "$SCRIPT_SOURCE_URL" "$temp_file"; then
+    rm -f "$temp_file"
+    err "Failed to download latest script from $SCRIPT_SOURCE_URL."
+    return 1
+  fi
+
+  chmod +x "$temp_file" 2>/dev/null || true
+  if mv "$temp_file" "$script_path"; then
+    ok "Script updated to version ${new_version:-unknown}."
+    exec "$script_path" "${remaining_args[@]}"
+  else
+    rm -f "$temp_file"
+    err "Failed to replace existing script at $script_path."
+    return 1
+  fi
+}
+
+check_for_updates() {
+  local remote_version=""
+
+  remote_version="$(fetch_latest_version)" || return 0
+  if [[ -z "$remote_version" || "$remote_version" == "$SCRIPT_VERSION" ]]; then
+    return 0
+  fi
+
+  warn "A new script version is available (${SCRIPT_VERSION} → ${remote_version})."
+  read -rp "Would you like to update now? (y/n): " update_choice || {
+    warn "No response received; continuing with current version $SCRIPT_VERSION."
+    return 0
+  }
+
+  if [[ "$update_choice" =~ ^[Yy]$ ]]; then
+    if ! perform_self_update "$remote_version" "$@"; then
+      warn "Self-update failed; continuing with current version $SCRIPT_VERSION."
+    fi
+  else
+    log "Continuing with current version $SCRIPT_VERSION."
+  fi
+}
+
+# ---------- CLI flags ----------
+POSITIONAL_ARGS=()
+UPDATE_REQUESTED=0
+CHECK_UPDATE_ONLY=0
+
+handle_cli_args() {
+  POSITIONAL_ARGS=()
+  UPDATE_REQUESTED=0
+  CHECK_UPDATE_ONLY=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --update)
+        UPDATE_REQUESTED=1
+        shift
+        ;;
+      --check-update)
+        CHECK_UPDATE_ONLY=1
+        shift
+        ;;
+      --version)
+        echo "$SCRIPT_VERSION"
+        exit 0
+        ;;
+      --help|-h)
+        print_usage
+        exit 0
+        ;;
+      --)
+        shift
+        while [[ $# -gt 0 ]]; do
+          POSITIONAL_ARGS+=("$1")
+          shift
+        done
+        break
+        ;;
+      -*)
+        err "Unknown option: $1"
+        print_usage
+        exit 1
+        ;;
+      *)
+        POSITIONAL_ARGS+=("$1")
+        shift
+        ;;
+    esac
+  done
+
+  if ((${#POSITIONAL_ARGS[@]})); then
+    err "This script does not accept positional arguments: ${POSITIONAL_ARGS[*]}"
+    print_usage
+    exit 1
+  fi
 }
 
 # ---------- Generic helper to wrap any install-like command with messages ----------
@@ -791,7 +1002,42 @@ run_ubuntu() {
 
 # ------------------------------ Main ------------------------------
 main() {
-  require_root "$@"
+  local original_args=("$@")
+  local remote_version=""
+
+  handle_cli_args "$@"
+
+  if (( UPDATE_REQUESTED )); then
+    if ! remote_version="$(fetch_latest_version)"; then
+      err "Unable to determine latest script version."
+      exit 1
+    fi
+    if [[ "$remote_version" == "$SCRIPT_VERSION" ]]; then
+      ok "Script is already up to date (version $SCRIPT_VERSION)."
+      exit 0
+    fi
+    require_root "${original_args[@]}"
+    if ! perform_self_update "$remote_version"; then
+      exit 1
+    fi
+    exit 0
+  fi
+
+  if (( CHECK_UPDATE_ONLY )); then
+    if ! remote_version="$(fetch_latest_version)"; then
+      err "Unable to determine latest script version."
+      exit 1
+    fi
+    if [[ "$remote_version" == "$SCRIPT_VERSION" ]]; then
+      ok "Script version $SCRIPT_VERSION is up to date."
+    else
+      warn "Script update available: $SCRIPT_VERSION -> $remote_version"
+    fi
+    exit 0
+  fi
+
+  require_root "${original_args[@]}"
+  check_for_updates "${original_args[@]}"
   detect_de
   choose_os
   choose_gpu
