@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v1.1 — baseline with self-update support, DE detection, DE-aware media,
+# v1.2 — baseline with self-update support, DE detection, DE-aware media,
 # Fedora ffmpeg stack conflict fixed (swap early; no ffmpeg-libs in VA-API),
 # RPM Fusion fallback mirror, quieter Flatpak remote removal, minor hardening.
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.1"
+SCRIPT_VERSION="1.2"
 SCRIPT_SOURCE_URL_DEFAULT="https://raw.githubusercontent.com/ArcticLatent/post-linux/main/post_linux.sh"
 SCRIPT_SOURCE_URL="${POST_LINUX_SOURCE:-$SCRIPT_SOURCE_URL_DEFAULT}"
 
