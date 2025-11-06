@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Unified OS post-install + NVIDIA checker/installer
-# v1.2 — baseline with self-update support, DE detection, DE-aware media,
+# v1.3 — baseline with self-update support, DE detection, DE-aware media,
 # Fedora ffmpeg stack conflict fixed (swap early; no ffmpeg-libs in VA-API),
 # RPM Fusion fallback mirror, quieter Flatpak remote removal, minor hardening.
 
 set -Eeuo pipefail
 
-SCRIPT_VERSION="1.2"
+SCRIPT_VERSION="1.3"
 SCRIPT_SOURCE_URL_DEFAULT="https://raw.githubusercontent.com/ArcticLatent/post-linux/main/post_linux.sh"
 SCRIPT_SOURCE_URL="${POST_LINUX_SOURCE:-$SCRIPT_SOURCE_URL_DEFAULT}"
 
@@ -493,7 +493,7 @@ fedora_flatpak_setup() {
 fedora_media_setup() {
   # Core + common codecs via FFmpeg bridge
   install_step "GStreamer (base + good + libav)" \
-    dnf -y install gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-libav
+    dnf -y install gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-libav gstreamer1-plugin-gtk4
 
   # Multimedia and sound groups (no bad plugins)
   install_step "Multimedia group" dnf -y group install multimedia
@@ -692,7 +692,7 @@ arch_install_mpc_qt() {
 
 # Media: choose apps by DE
 arch_media_setup() {
-  install_step "GStreamer (Arch)" pacman -S --noconfirm --needed gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gstreamer-vaapi
+  install_step "GStreamer (Arch)" pacman -S --noconfirm --needed gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gstreamer-vaapi gst-plugin-gtk
   if [[ "$DESKTOP_ENV" == "kde" ]]; then
     install_step "MPV (video player)" pacman -S --noconfirm --needed mpv
     arch_install_mpc_qt
@@ -848,7 +848,7 @@ mint_post_install() {
   ok "Runtime swappiness set to 10."
 
   install_step "Persist swappiness=10" bash -lc "printf 'vm.swappiness=10\n' | tee /etc/sysctl.d/99-swappiness.conf > /dev/null"
-  install_step "Mint core utilities" apt install -y unzip ntfs-3g p7zip curl bzip2 tar exfat-fuse wget unrar gstreamer1.0-vaapi
+  install_step "Mint core utilities" apt install -y unzip ntfs-3g p7zip curl bzip2 tar exfat-fuse wget unrar gstreamer1.0-vaapi libgtk-4-media-gstreamer
   ok "Linux Mint post-install tweaks applied."
 }
 
@@ -985,7 +985,7 @@ ubuntu_flatpak_setup() {
 ubuntu_media_setup() {
   install_step "Enable multiverse" add-apt-repository -y multiverse
   log "apt update..."; apt update; ok "apt update complete."
-  install_step "ubuntu-restricted-extras" apt install -y ubuntu-restricted-extras
+  install_step "ubuntu-restricted-extras" apt install -y ubuntu-restricted-extras libgtk-4-media-gstreamer
   install_step "Video players (Celluloid + MPV)" apt install -y celluloid mpv
 }
 
