@@ -39,6 +39,19 @@ run_as_user() { # usage: run_as_user <username> "cmd..."
   sudo -u "$u" bash -lc "$*"
 }
 
+wait_with_spinner() { # usage: wait_with_spinner <pid> "Message"
+  local pid="$1" msg="$2" spin='|/-\\' i=0
+  printf '%s ' "$msg"
+  while kill -0 "$pid" 2>/dev/null; do
+    printf '\r%s %s' "$msg" "${spin:i++%${#spin}:1}"
+    sleep 0.2
+  done
+  wait "$pid"
+  local status=$?
+  printf '\r%s %s\n' "$msg" "done"
+  return $status
+}
+
 # ---------- Self-update helpers ----------
 print_usage() {
   cat <<'EOF'
@@ -291,12 +304,15 @@ detect_de() {
     DESKTOP_ENV="gnome"
   elif [[ "$lc" == *"kde"* || "$lc" == *"plasma"* ]]; then
     DESKTOP_ENV="kde"
+  elif [[ "$lc" == *"cinnamon"* ]]; then
+    DESKTOP_ENV="cinnamon"
   else
     if command -v loginctl &>/dev/null; then
       local sid; sid="$(loginctl | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1; exit}')" || true
       [[ -n "$sid" ]] && lc="$(loginctl show-session "$sid" -p Desktop 2>/dev/null | tr '[:upper:]' '[:lower:]')" || true
       if [[ "$lc" == *"gnome"* ]]; then DESKTOP_ENV="gnome"
       elif [[ "$lc" == *"kde"* || "$lc" == *"plasma"* ]]; then DESKTOP_ENV="kde"
+      elif [[ "$lc" == *"cinnamon"* ]]; then DESKTOP_ENV="cinnamon"
       fi
     fi
   fi
@@ -516,6 +532,14 @@ fedora_archive_support() {
   install_step "Archive tools (7zip + unrar)" dnf install -y p7zip p7zip-plugins unrar
 }
 
+fedora_ensure_firefox() {
+  if dnf list --installed firefox &>/dev/null; then
+    ok "Firefox already installed."
+  else
+    install_step "Firefox" dnf install -y firefox
+  fi
+}
+
 fedora_prune_gnome_apps() {
   [[ "$DESKTOP_ENV" == "gnome" ]] || return 0
   local candidates=(epiphany gnome-showtime showtime gnome-maps htop gnome-snapshot snapshot simple-scan vim vim-enhanced)
@@ -573,8 +597,9 @@ run_fedora() {
   fedora_media_setup                 # 6) media (DE-aware) + ffmpeg swap
   fedora_hwaccel_setup               # 7) hwaccel (no ffmpeg-libs here)
   fedora_archive_support             # 8) archives
-  fedora_prune_gnome_apps            # 9) GNOME prune (if needed)
-  fedora_prune_kde_bloat             # 10) KDE prune (LAST)
+  fedora_ensure_firefox              # 9) browser
+  fedora_prune_gnome_apps            # 10) GNOME prune (if needed)
+  fedora_prune_kde_bloat             # 11) KDE prune (LAST)
 }
 
 # ========================= ARCH =========================
@@ -612,26 +637,29 @@ arch_install_nvidia() {
 }
 
 arch_post_install() {
+  install_step "rustup" pacman -S --needed --noconfirm rustup
   install_step "base-devel + git" pacman -S --needed --noconfirm base-devel git
 
-  if command -v yay &>/dev/null; then
-    ok "yay already installed; skipping build."
+  if command -v paru &>/dev/null; then
+    ok "paru already installed; skipping build."
     return
   fi
 
-  # Build yay as the invoking (non-root) user to avoid makepkg safety error
   local invu; invu=$(get_invoking_user)
   if [[ -z "$invu" || "$invu" == "root" ]]; then
-    err "Cannot determine a non-root user to build yay. Please run this script with sudo from your regular user."; exit 1
+    err "Cannot determine a non-root user to build paru. Please run this script with sudo from your regular user."; exit 1
   fi
 
-  log "Preparing yay sources (as $invu)..."
-  run_as_user "$invu" "cd ~; if [[ -d yay/.git ]]; then cd yay && git fetch origin yay && git checkout -f yay && git reset --hard origin/yay; else git clone --branch yay --single-branch https://github.com/archlinux/aur.git yay; fi"
-  ok "yay sources ready."
+  log "Ensuring Rust toolchain for paru build (as $invu)..."
+  run_as_user "$invu" "if ! rustup show >/dev/null 2>&1; then rustup default stable; fi"
 
-  log "Building and installing yay (as $invu)..."
-  run_as_user "$invu" "cd ~/yay && makepkg -si --noconfirm"
-  ok "yay installed."
+  log "Preparing paru sources (as $invu)..."
+  run_as_user "$invu" "cd ~; if [[ -d paru/.git ]]; then cd paru && git fetch origin master && git checkout -f master && git reset --hard origin/master; else git clone https://aur.archlinux.org/paru.git paru; fi"
+  ok "paru sources ready."
+
+  log "Building and installing paru (as $invu)..."
+  run_as_user "$invu" "cd ~/paru && makepkg -si --noconfirm"
+  ok "paru installed."
 }
 
 arch_firewall_setup() {
@@ -692,18 +720,31 @@ arch_install_mpc_qt() {
 
 # Media: choose apps by DE
 arch_media_setup() {
-  install_step "GStreamer (Arch)" pacman -S --noconfirm --needed gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gstreamer-vaapi gst-plugin-gtk
+  if [[ "$DESKTOP_ENV" == "cinnamon" ]]; then
+    install_step "Cinnamon media stack" pacman -S --noconfirm --needed showtime gstreamer gstreamer-vaapi gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav
+  else
+    install_step "GStreamer (Arch)" pacman -S --noconfirm --needed gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gstreamer-vaapi gst-plugin-gtk
+  fi
   if [[ "$DESKTOP_ENV" == "kde" ]]; then
     install_step "MPV (video player)" pacman -S --noconfirm --needed mpv
     arch_install_mpc_qt
   else
     install_step "GNOME media players (Celluloid + MPV)" pacman -S --noconfirm --needed celluloid mpv
   fi
+  install_step "Video thumbnailer" pacman -S --noconfirm --needed ffmpegthumbnailer
 }
 
 arch_hwaccel_setup() { install_step "NVIDIA VAAPI driver" pacman -S --noconfirm --needed libva-nvidia-driver; }
 
 arch_archive_support() { install_step "Archive tools (tar, zip, 7zip)" pacman -S --noconfirm --needed tar gzip zip unzip p7zip; }
+
+arch_ensure_firefox() {
+  if pacman -Q firefox &>/dev/null; then
+    ok "Firefox already installed."
+  else
+    install_step "Firefox" pacman -S --noconfirm --needed firefox
+  fi
+}
 
 arch_prune_gnome_apps() {
   [[ "$DESKTOP_ENV" == "gnome" ]] || return 0
@@ -739,6 +780,47 @@ arch_prune_kde_bloat() {
   ok "KDE optional apps pruned."
 }
 
+arch_cinnamon_setup() {
+  install_step "Cinnamon desktop essentials" \
+    pacman -S --noconfirm --needed ristretto papers gedit gnome-calculator papirus-icon-theme file-roller nemo-fileroller
+
+  if pacman -Q engrampa &>/dev/null; then
+    log "Removing engrampa in favor of nemo-fileroller integration..."
+    pacman -Rsn --noconfirm engrampa
+    ok "engrampa removed."
+  fi
+
+  local invu; invu=$(get_invoking_user)
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    err "Cannot determine a non-root user to build mint-artwork. Please run this script with sudo from your regular user."; exit 1
+  fi
+
+  local log_file; log_file="$(mktemp /tmp/mint-artwork.XXXX.log)"
+  log "Installing Mint artwork package (themes, icons, Cinnamon sounds). This may take a bit — logs: $log_file"
+  run_as_user "$invu" "paru -S --noconfirm --needed mint-artwork" >"$log_file" 2>&1 &
+  local paru_pid=$!
+  if ! wait_with_spinner "$paru_pid" "Mint artwork install"; then
+    err "mint-artwork installation failed. Check $log_file for details."
+    return 1
+  fi
+  rm -f "$log_file"
+  ok "mint-artwork installed."
+
+  local lightdm_conf="/etc/lightdm/lightdm.conf"
+  if [[ -f "$lightdm_conf" ]]; then
+    log "Configuring LightDM to use lightdm-slick-greeter..."
+    if grep -Eq '^#?greeter-session' "$lightdm_conf"; then
+      sed -i 's/^#\?greeter-session.*/greeter-session=lightdm-slick-greeter/' "$lightdm_conf"
+    else
+      printf '\n[Seat:*]\n' >> "$lightdm_conf"
+      echo 'greeter-session=lightdm-slick-greeter' >> "$lightdm_conf"
+    fi
+    ok "LightDM greeter set to lightdm-slick-greeter."
+  else
+    warn "LightDM config not found at $lightdm_conf; skipping greeter setup."
+  fi
+}
+
 run_arch() {
   if ! arch_detect; then
     err "OS mismatch: You selected Arch, but this system does not appear to be Arch Linux. Aborting."; exit 1
@@ -746,14 +828,18 @@ run_arch() {
   log "Starting Arch flow..."
   arch_update_base             # 1) system update FIRST
   arch_install_nvidia          # 2) drivers
-  arch_post_install            # 3) dev tools + yay
+  arch_post_install            # 3) dev tools + paru
   arch_firewall_setup          # 4) firewall
   arch_flatpak_setup           # 5) flatpak
   arch_media_setup             # 6) media (DE-aware)
   arch_hwaccel_setup           # 7) hwaccel
   arch_archive_support         # 8) archives
-  arch_prune_gnome_apps        # 9) GNOME prune (if needed)
-  arch_prune_kde_bloat         # 10) KDE prune (LAST)
+  if [[ "$DESKTOP_ENV" == "cinnamon" ]]; then
+    arch_cinnamon_setup        # Cinnamon-specific tasks (pending package list)
+  fi
+  arch_ensure_firefox          # 9) browser
+  arch_prune_gnome_apps        # 10) GNOME prune (if needed)
+  arch_prune_kde_bloat         # 11) KDE prune (LAST)
 }
 
 # ========================= LINUX MINT =========================
@@ -870,6 +956,14 @@ mint_media_setup() {
 
 mint_hwaccel_setup() { install_step "NVIDIA VAAPI driver" apt install -y nvidia-vaapi-driver; }
 
+mint_ensure_firefox() {
+  if dpkg-query -W -f='${Status}' firefox 2>/dev/null | grep -q "install ok installed"; then
+    ok "Firefox already installed."
+  else
+    install_step "Firefox" apt install -y firefox
+  fi
+}
+
 run_mint() {
   if ! mint_detect; then
     err "OS mismatch: You selected Linux Mint, but this system does not appear to be Linux Mint. Aborting."; exit 1
@@ -880,6 +974,7 @@ run_mint() {
   mint_post_install
   mint_media_setup
   mint_hwaccel_setup
+  mint_ensure_firefox
 }
 
 # ========================= UBUNTU =========================
