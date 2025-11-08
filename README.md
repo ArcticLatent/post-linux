@@ -61,6 +61,20 @@ Together, these ensure a smooth Fedora experience with open driver support, medi
 
 ---
 
+## 🧊 Arch Cinnamon Enhancements
+
+When the script detects **Arch Linux running the Cinnamon desktop**, it layers on a tailored experience to bring Mint-like polish to the stock Arch install:
+
+- 🧰 **Desktop essentials preinstalled** — `ristretto`, `papers`, `gedit`, `gnome-calculator`, `papirus-icon-theme`, `file-roller`, and `nemo-fileroller` are installed in one shot so the desktop feels ready immediately.
+- 🗜️ **Clean file manager integration** — automatically removes `engrampa` to avoid duplicate archive handlers and lets `nemo-fileroller` take over compression/extraction duties.
+- 🎨 **Mint artwork bundle (AUR)** — builds the large `mint-artwork` package via `paru` with a quiet spinner + log file so the terminal stays tidy while themes, icons, sounds, and LightDM slick greeter assets install.
+- 🔐 **LightDM configured automatically** — once the artwork lands, `/etc/lightdm/lightdm.conf` is patched to use `lightdm-slick-greeter`, matching the Mint visual style right at login.
+- 🎬 **Cinnamon media stack** — installs GNOME Showtime plus `gstreamer`, `gstreamer-vaapi`, and the full GST plugin families, then adds `ffmpegthumbnailer` for rich file previews.
+
+These additions only run on Arch+Cinnamon systems; other Arch desktops continue to receive the lean, DE-aware defaults.
+
+---
+
 ## 🧊 Linux Mint-Specific Features
 
 Linux Mint 22+ systems are prepped for gaming and creative work with minimal manual intervention:
