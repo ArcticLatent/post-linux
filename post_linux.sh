@@ -636,30 +636,100 @@ arch_install_nvidia() {
   arch_show_nvidia_info
 }
 
+arch_enable_pacman_candy() {
+  local pacman_conf="/etc/pacman.conf"
+  if [[ ! -f "$pacman_conf" ]]; then
+    warn "pacman.conf not found at $pacman_conf; skipping candy tweaks."
+    return 0
+  fi
+
+  local changed=0
+  if grep -Eq '^[[:space:]]*Color\b' "$pacman_conf"; then
+    log "pacman Color already enabled."
+  elif grep -Eq '^[[:space:]]*#\s*Color\b' "$pacman_conf"; then
+    log "Uncommenting Color in pacman.conf..."
+    sed -i '0,/^[[:space:]]*#\s*Color\b/s//Color/' "$pacman_conf"
+    changed=1
+  else
+    log "Color option missing; appending to pacman.conf..."
+    printf '\nColor\n' >> "$pacman_conf"
+    changed=1
+  fi
+
+  if grep -Eq '^[[:space:]]*ILoveCandy\b' "$pacman_conf"; then
+    log "ILoveCandy already present in pacman.conf."
+  else
+    log "Adding ILoveCandy below Color in pacman.conf..."
+    local color_line tmpfile
+    color_line="$(grep -n '^[[:space:]]*Color\b' "$pacman_conf" | head -n1 | cut -d: -f1 || true)"
+    if [[ -n "$color_line" ]]; then
+      tmpfile="$(mktemp)"
+      awk -v insert_line="$color_line" '
+        NR==insert_line { print; print "ILoveCandy"; next }
+        { print }
+      ' "$pacman_conf" > "$tmpfile"
+      cat "$tmpfile" > "$pacman_conf"
+      rm -f "$tmpfile"
+    else
+      printf '\nILoveCandy\n' >> "$pacman_conf"
+    fi
+    changed=1
+  fi
+
+  if (( changed )); then
+    ok "Enabled pacman color candy mode."
+  else
+    ok "pacman.conf already configured for candy mode."
+  fi
+}
+
+arch_configure_paru() {
+  local paru_conf="/etc/paru.conf"
+  if [[ ! -f "$paru_conf" ]]; then
+    warn "paru.conf not found at $paru_conf; skipping BottomUp tweak."
+    return 0
+  fi
+
+  if grep -Eq '^[[:space:]]*BottomUp\b' "$paru_conf"; then
+    ok "paru BottomUp already enabled."
+    return 0
+  fi
+
+  if grep -Eq '^[[:space:]]*#\s*BottomUp\b' "$paru_conf"; then
+    log "Uncommenting BottomUp in paru.conf..."
+    sed -i '0,/^[[:space:]]*#\s*BottomUp\b/s//BottomUp/' "$paru_conf"
+  else
+    log "BottomUp option missing; appending to paru.conf..."
+    printf '\nBottomUp\n' >> "$paru_conf"
+  fi
+  ok "paru BottomUp enabled."
+}
+
 arch_post_install() {
   install_step "rustup" pacman -S --needed --noconfirm rustup
   install_step "base-devel + git" pacman -S --needed --noconfirm base-devel git
 
   if command -v paru &>/dev/null; then
     ok "paru already installed; skipping build."
-    return
+  else
+    local invu; invu=$(get_invoking_user)
+    if [[ -z "$invu" || "$invu" == "root" ]]; then
+      err "Cannot determine a non-root user to build paru. Please run this script with sudo from your regular user."; exit 1
+    fi
+
+    log "Ensuring Rust toolchain for paru build (as $invu)..."
+    run_as_user "$invu" "if ! rustup show >/dev/null 2>&1; then rustup default stable; fi"
+
+    log "Preparing paru sources (as $invu)..."
+    run_as_user "$invu" "cd ~; if [[ -d paru/.git ]]; then cd paru && git fetch origin master && git checkout -f master && git reset --hard origin/master; else git clone https://aur.archlinux.org/paru.git paru; fi"
+    ok "paru sources ready."
+
+    log "Building and installing paru (as $invu)..."
+    run_as_user "$invu" "cd ~/paru && makepkg -si --noconfirm"
+    ok "paru installed."
   fi
 
-  local invu; invu=$(get_invoking_user)
-  if [[ -z "$invu" || "$invu" == "root" ]]; then
-    err "Cannot determine a non-root user to build paru. Please run this script with sudo from your regular user."; exit 1
-  fi
-
-  log "Ensuring Rust toolchain for paru build (as $invu)..."
-  run_as_user "$invu" "if ! rustup show >/dev/null 2>&1; then rustup default stable; fi"
-
-  log "Preparing paru sources (as $invu)..."
-  run_as_user "$invu" "cd ~; if [[ -d paru/.git ]]; then cd paru && git fetch origin master && git checkout -f master && git reset --hard origin/master; else git clone https://aur.archlinux.org/paru.git paru; fi"
-  ok "paru sources ready."
-
-  log "Building and installing paru (as $invu)..."
-  run_as_user "$invu" "cd ~/paru && makepkg -si --noconfirm"
-  ok "paru installed."
+  arch_configure_paru
 }
 
 arch_firewall_setup() {
@@ -827,6 +897,7 @@ run_arch() {
   fi
   log "Starting Arch flow..."
   arch_update_base             # 1) system update FIRST
+  arch_enable_pacman_candy     # 1b) pacman niceties
   arch_install_nvidia          # 2) drivers
   arch_post_install            # 3) dev tools + paru
   arch_firewall_setup          # 4) firewall
