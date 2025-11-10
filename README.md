@@ -167,6 +167,15 @@ The script compares its local `SCRIPT_VERSION` against the remote source and off
 
 ---
 
+## 🧊 Author
+
+Burce Boran 🎥 Asset Supervisor / VFX Artist | 🐧 Arctic Latent
+
+[![YouTube – Arctic Latent](https://img.shields.io/badge/YouTube-%40ArcticLatent-FF0000?logo=youtube&logoColor=white)](https://youtube.com/@ArcticLatent)
+[![Patreon – Arctic Latent](https://img.shields.io/badge/Patreon-Arctic%20Latent-FF424D?logo=patreon&logoColor=white)](https://patreon.com/ArcticLatent)
+
+---
+
 ## 📜 License
 
 MIT License © 2025 Burce Boran  
