@@ -627,11 +627,40 @@ arch_show_nvidia_info() {
   fi
 }
 
+arch_using_custom_kernel() {
+  # Treat non-stock kernels (zen/hardened/rt/etc.) as custom and prefer DKMS builds.
+  local k
+  k="$(uname -r | tr '[:upper:]' '[:lower:]')"
+  if [[ "$k" == *-zen* || "$k" == *-hardened* || "$k" == *-ck* || "$k" == *-rt* || "$k" == *-xanmod* || "$k" == *-tkg* ]]; then
+    return 0
+  fi
+
+  # If neither stock kernel package is present, assume an alternate/custom build.
+  if ! pacman -Qq linux >/dev/null 2>&1 && ! pacman -Qq linux-lts >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
 arch_install_nvidia() {
-  if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
-    install_step "NVIDIA (open) + utils + lib32" pacman -S --noconfirm --needed nvidia-open nvidia-utils lib32-nvidia-utils
+  local use_custom_kernel=0
+  if arch_using_custom_kernel; then
+    use_custom_kernel=1
+    log "Custom/alt kernel detected ($(uname -r)); using DKMS NVIDIA packages."
+  fi
+
+  if (( use_custom_kernel )); then
+    if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
+      install_step "NVIDIA (open DKMS) + utils + lib32" pacman -S --noconfirm --needed nvidia-open-dkms nvidia-utils lib32-nvidia-utils
+    else
+      install_step "NVIDIA (DKMS) + utils + lib32" pacman -S --noconfirm --needed nvidia-dkms nvidia-utils lib32-nvidia-utils
+    fi
   else
-    install_step "NVIDIA (proprietary) + utils + lib32" pacman -S --noconfirm --needed nvidia nvidia-utils lib32-nvidia-utils
+    if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
+      install_step "NVIDIA (open) + utils + lib32" pacman -S --noconfirm --needed nvidia-open nvidia-utils lib32-nvidia-utils
+    else
+      install_step "NVIDIA (proprietary) + utils + lib32" pacman -S --noconfirm --needed nvidia nvidia-utils lib32-nvidia-utils
+    fi
   fi
   arch_show_nvidia_info
 }
