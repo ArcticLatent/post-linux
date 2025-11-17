@@ -735,7 +735,7 @@ arch_configure_paru() {
 }
 
 arch_post_install() {
-  install_step "rustup" pacman -S --needed --noconfirm rustup
+  install_step "rustup (required for paru build)" pacman -S --needed --noconfirm rustup
   install_step "base-devel + git" pacman -S --needed --noconfirm base-devel git
 
   if command -v paru &>/dev/null; then
