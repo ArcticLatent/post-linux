@@ -1,6 +1,6 @@
 # 🧊 Post-Linux — Universal Linux Post-Install Script
 
-A fully automated **post-install script** that configures your system for production and creative workflows across **Fedora**, **Arch**, **Ubuntu**, and **Linux Mint**.
+A fully automated **post-install script** that configures your system for production and creative workflows across **Fedora**, **Arch**, **Ubuntu**, **Linux Mint**, and **Debian**.
 
 > 🎯 Includes NVIDIA drivers, Flatpak setup, media codecs, hardware acceleration, archive utilities, and more — with clean progress feedback.
 
@@ -8,7 +8,7 @@ A fully automated **post-install script** that configures your system for produc
 
 ## 🚀 Features
 
-- 🧠 Detects your OS (**Fedora**, **Arch**, **Ubuntu**, or **Linux Mint**)
+- 🧠 Detects your OS (**Fedora**, **Arch**, **Ubuntu**, **Linux Mint**, or **Debian**)
 - ⚙️ Installs the latest **NVIDIA** drivers (open or proprietary)
 - 🧩 Replaces **Snap with Flatpak** on Ubuntu
 - 🌱 Prepares **Linux Mint** with i386 support, latest NVIDIA drivers, and curated multimedia defaults
@@ -27,6 +27,7 @@ A fully automated **post-install script** that configures your system for produc
 | ![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793D1?logo=archlinux&logoColor=white&style=flat-square) | ✅ open/proprietary | ✅ Flatpak | ✅ GStreamer | ✅ |
 | ![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%2B-E95420?logo=ubuntu&logoColor=white&style=flat-square) | ✅ Auto-detects latest NVIDIA open / proprietary driver | ✅ Snap→Flatpak | ✅ Multiverse + Extras | ✅ |
 | ![Linux Mint](https://img.shields.io/badge/Linux_Mint-22%2B-87CF3E?logo=linux-mint&logoColor=white&style=flat-square) | ✅ graphics-drivers PPA (open / proprietary) | ✅ Flatpak | ✅ mint-meta-codecs | ✅ |
+| ![Debian](https://img.shields.io/badge/Debian-13_Trixie-A81D33?logo=debian&logoColor=white&style=flat-square) | ✅ open/proprietary (kernel DKMS) | ✅ Flatpak | ✅ Full A/V codecs | ✅ |
 
 ---
 
@@ -132,6 +133,22 @@ Ubuntu users get a clean, optimized, and GPU-ready setup automatically:
   ```
 
 Together, this ensures a Flatpak-friendly Ubuntu with a native, GPU-optimized system and up-to-date Firefox.
+
+---
+
+## 🧊 Debian-Specific Features
+
+Debian 13 (Trixie) systems get a modernized desktop with sane defaults out of the box:
+
+- 🔄 **Full update + repo refresh** — runs `apt update && apt full-upgrade -y`, backs up and comments your stock `/etc/apt/sources.list`, then writes the Trixie `main contrib non-free non-free-firmware` sources and refreshes apt.
+- 📦 **extrepo enabled with contrib/non-free** — installs `extrepo` and uncomments `contrib` and `non-free` in `/etc/extrepo/config.yaml` so you can easily add third-party repos.
+- ⚙️ **NVIDIA headers + drivers (open or proprietary)** — installs `linux-headers-amd64`, then picks `nvidia-open-kernel-dkms` for RTX 4000/5000 or `nvidia-kernel-dkms` for older GPUs, plus `nvidia-driver` and `firmware-misc-nonfree`.
+- 🎬 **Hardware acceleration** — adds `nvidia-vaapi-driver` for GPU-backed decoding.
+- 🌐 **Flatpak + Flathub + desktop tooling** — installs Flatpak, adds Flathub, and installs Flatseal + Bazaar for managing and browsing Flatpaks.
+- 🗜️ **Essential tools + codecs + fonts** — installs CLI essentials (`git`, `curl`, `wget`, `fastfetch`, `htop`, `ffmpeg`, build tools, archive utils, NTFS support), Microsoft core fonts, and Noto (Latin + CJK).
+- 🧩 **GNOME niceties (GNOME desktops only)** — installs GNOME Tweaks, GNOME Shell Extension Manager, and the GNOME Software Flatpak plugin.
+
+These steps aim to keep Debian close to upstream while enabling common multimedia, GPU, and desktop conveniences with minimal manual effort.
 
 ---
 
