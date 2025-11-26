@@ -328,12 +328,14 @@ choose_os() {
   echo "  2) Fedora"
   echo "  3) Arch"
   echo "  4) Linux Mint"
-  read -rp "Enter number [1-4]: " ans
+  echo "  5) Debian"
+  read -rp "Enter number [1-5]: " ans
   case "$ans" in
     1) OS_SEL="ubuntu" ;;
     2) OS_SEL="fedora" ;;
     3) OS_SEL="arch" ;;
     4) OS_SEL="mint" ;;
+    5) OS_SEL="debian" ;;
     *) err "Invalid selection"; exit 1 ;;
   esac
   ok "OS selected: $OS_SEL"
@@ -1222,6 +1224,167 @@ run_ubuntu() {
   ubuntu_prune_gnome_apps
 }
 
+# ========================= DEBIAN =========================
+debian_detect() {
+  if [[ -f /etc/os-release ]]; then
+    if grep -qiE '^ID=debian' /etc/os-release || grep -qiE '^ID_LIKE=.*debian' /etc/os-release || grep -qi 'Debian' /etc/os-release; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+debian_update_base() {
+  log "Updating package lists (apt update)..."
+  apt update
+  ok "apt update complete."
+  log "Applying full-upgrade..."
+  apt full-upgrade -y
+  ok "Full upgrade completed."
+}
+
+debian_ensure_sudo_privileges() {
+  local invu; invu="$(get_invoking_user)"
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    warn "Non-root invoking user not detected; skipping sudoers update."
+    return 0
+  fi
+
+  if sudo -l -U "$invu" >/dev/null 2>&1; then
+    ok "$invu already has sudo privileges."
+    return 0
+  fi
+
+  local sudoers_file="/etc/sudoers.d/${invu}"
+  log "Granting sudo privileges to $invu via $sudoers_file..."
+  printf '%s ALL=(ALL:ALL) ALL\n' "$invu" > "$sudoers_file"
+  chmod 0440 "$sudoers_file"
+  if visudo -cf "$sudoers_file"; then
+    ok "Sudo privileges granted to $invu."
+  else
+    err "visudo validation failed; removing $sudoers_file."
+    rm -f "$sudoers_file"
+    return 1
+  fi
+}
+
+debian_enable_extra_repos() {
+  local src="/etc/apt/sources.list"
+  local backup="${src}.bak"
+  local block="deb http://deb.debian.org/debian/ trixie main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ trixie main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian-security/ trixie-security main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian-security/ trixie-security main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian/ trixie-updates main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ trixie-updates main contrib non-free non-free-firmware"
+
+  if grep -Fqx 'deb http://deb.debian.org/debian/ trixie main contrib non-free non-free-firmware' "$src" 2>/dev/null; then
+    ok "Extra Debian repositories already present in $src."
+    return 0
+  fi
+
+  if [[ -f "$src" ]]; then
+    cp "$src" "$backup"
+    ok "Backed up $src to $backup."
+    sed -i '/^[[:space:]]*#/! s/^/# /' "$src"
+  else
+    warn "$src not found; creating a fresh one."
+  fi
+
+  printf '\n%s\n' "$block" >> "$src"
+  ok "Added Debian Trixie repositories to $src."
+
+  log "Updating package lists after repository changes..."
+  apt update
+  ok "apt update completed with new repositories."
+}
+
+debian_post_repo_upgrade() {
+  log "Running apt --update upgrade after repository changes..."
+  apt --update upgrade -y
+  ok "apt upgrade after repository changes completed."
+}
+
+debian_setup_extrepo() {
+  install_step "extrepo" apt install -y extrepo
+
+  local cfg="/etc/extrepo/config.yaml"
+  if [[ ! -f "$cfg" ]]; then
+    warn "$cfg not found; skipping extrepo config tweak."
+    return 0
+  fi
+
+  sed -i 's/^[[:space:]]*#\s*-\s*contrib/- contrib/' "$cfg"
+  sed -i 's/^[[:space:]]*#\s*-\s*non-free/- non-free/' "$cfg"
+
+  if grep -Eq '^[[:space:]]*-\s*contrib' "$cfg" && grep -Eq '^[[:space:]]*-\s*non-free' "$cfg"; then
+    ok "extrepo config updated to enable contrib and non-free."
+  else
+    warn "Could not confirm contrib/non-free were enabled in $cfg; please review manually."
+  fi
+}
+
+debian_install_nvidia() {
+  install_step "Kernel headers" apt install -y linux-headers-amd64
+
+  if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
+    install_step "NVIDIA (open) driver stack" apt install -y nvidia-open-kernel-dkms nvidia-driver firmware-misc-nonfree
+  else
+    install_step "NVIDIA driver stack" apt install -y nvidia-kernel-dkms nvidia-driver firmware-misc-nonfree
+  fi
+}
+
+debian_flatpak_setup() {
+  install_step "Flatpak" apt install -y flatpak
+  install_step "Flathub remote" flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+  local invu; invu="$(get_invoking_user)"
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    warn "Non-root invoking user not detected; skipping user Flatpak app install."
+    return 0
+  fi
+
+  install_step "Flatseal (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update flathub com.github.tchx84.Flatseal"
+  install_step "Bazaar (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update flathub io.github.kolunmi.Bazaar"
+}
+
+debian_install_fonts() {
+  install_step "Microsoft fonts and alternatives" apt install -y ttf-mscorefonts-installer fonts-crosextra-caladea fonts-crosextra-carlito
+}
+
+debian_hwaccel_setup() {
+  install_step "NVIDIA VAAPI driver" apt install -y nvidia-vaapi-driver
+}
+
+debian_install_essentials() {
+  install_step "Essential packages" apt install -y git curl wget fastfetch mpv gcc make python3 python3-pip unrar unzip cargo p7zip ntfs-3g htop ffmpeg fonts-noto fonts-noto-cjk
+}
+
+debian_gnome_extras() {
+  [[ "$DESKTOP_ENV" == "gnome" ]] || return 0
+  install_step "GNOME Tweaks + Extension Manager" apt install -y gnome-tweaks gnome-shell-extension-manager
+  install_step "GNOME Software Flatpak plugin" apt install -y gnome-software-plugin-flatpak
+}
+
+run_debian() {
+  if ! debian_detect; then
+    err "OS mismatch: You selected Debian, but this system does not appear to be Debian. Aborting."; exit 1
+  fi
+  log "Starting Debian flow..."
+  debian_update_base
+  debian_ensure_sudo_privileges
+  debian_enable_extra_repos
+  debian_post_repo_upgrade
+  debian_setup_extrepo
+  debian_install_nvidia
+  debian_hwaccel_setup
+  debian_flatpak_setup
+  debian_install_fonts
+  debian_install_essentials
+  debian_gnome_extras
+  ok "Debian post-install completed."
+}
+
 # ------------------------------ Main ------------------------------
 main() {
   local original_args=("$@")
@@ -1268,6 +1431,7 @@ main() {
     ubuntu) run_ubuntu ;;
     mint)   run_mint ;;
     arch)   run_arch ;;
+    debian) run_debian ;;
   esac
   ok "All done for $OS_SEL."
 }
