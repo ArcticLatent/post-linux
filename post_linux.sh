@@ -1293,12 +1293,24 @@ debian_ensure_sudo_privileges() {
   fi
 
   if [[ -z "$invu" || "$invu" == "root" ]]; then
-    read -rp "Enter the non-root username to grant sudo access: " invu
+    warn "Could not determine a non-root user automatically; skipping sudoers update."
+    return 0
   fi
 
-  if [[ -z "$invu" || "$invu" == "root" ]]; then
-    warn "Could not determine a non-root user; skipping sudoers update."
-    return 0
+  if [[ ":$PATH:" != *":/usr/sbin:"* ]] && [[ -x /usr/sbin/visudo ]]; then
+    PATH="${PATH:+$PATH:}/usr/sbin"
+    export PATH
+    log "Added /usr/sbin to PATH so visudo is available."
+  fi
+
+  local visudo_bin=""
+  if command -v visudo >/dev/null 2>&1; then
+    visudo_bin="$(command -v visudo)"
+  elif [[ -x /usr/sbin/visudo ]]; then
+    visudo_bin="/usr/sbin/visudo"
+  else
+    err "visudo not found; cannot safely edit sudoers."
+    return 1
   fi
 
   if ! id -u "$invu" >/dev/null 2>&1; then
@@ -1335,7 +1347,7 @@ debian_ensure_sudo_privileges() {
   printf '%s ALL=(ALL:ALL) ALL\n' "$invu" > "$sudoers_file"
   chmod 0440 "$sudoers_file"
   chown root:root "$sudoers_file"
-  if visudo -cf "$sudoers_file" && visudo -c >/dev/null 2>&1; then
+  if "$visudo_bin" -cf "$sudoers_file" && "$visudo_bin" -c >/dev/null 2>&1; then
     ok "Sudo privileges granted to $invu (re-log in to pick up the sudo group)."
   else
     err "visudo validation failed; removing $sudoers_file."
