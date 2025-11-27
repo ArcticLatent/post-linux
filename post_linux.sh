@@ -1260,10 +1260,41 @@ debian_update_base() {
 }
 
 debian_ensure_sudo_privileges() {
-  local invu; invu="$(get_invoking_user)"
+  # Resolve the target non-root user as best we can: env override, sudo user,
+  # login name, or prompt as a last resort when running as root directly.
+  local invu="${POST_LINUX_USER:-}"
+  local guessed=""
   if [[ -z "$invu" || "$invu" == "root" ]]; then
-    warn "Non-root invoking user not detected; skipping sudoers update."
+    guessed="$(get_invoking_user)"
+    [[ "$guessed" != "root" && -n "$guessed" ]] && invu="$guessed"
+  fi
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    guessed="${LOGNAME:-}"
+    [[ "$guessed" != "root" && -n "$guessed" ]] && invu="$guessed"
+  fi
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    if command -v logname >/dev/null 2>&1; then
+      guessed="$(logname 2>/dev/null || true)"
+      [[ "$guessed" != "root" && -n "$guessed" ]] && invu="$guessed"
+    fi
+  fi
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    read -rp "Enter the non-root username to grant sudo access: " invu
+  fi
+
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    warn "Could not determine a non-root user; skipping sudoers update."
     return 0
+  fi
+
+  if ! id -u "$invu" >/dev/null 2>&1; then
+    warn "User $invu does not exist; skipping sudoers update."
+    return 0
+  fi
+
+  # Ensure sudo is present before trying to grant access.
+  if ! command -v sudo >/dev/null 2>&1; then
+    install_step "sudo package" apt install -y sudo
   fi
 
   if sudo -l -U "$invu" >/dev/null 2>&1; then
@@ -1272,6 +1303,12 @@ debian_ensure_sudo_privileges() {
   fi
 
   local sudoers_file="/etc/sudoers.d/${invu}"
+  if ! id -nG "$invu" 2>/dev/null | grep -qw sudo; then
+    log "Adding $invu to sudo group..."
+    usermod -aG sudo "$invu"
+    ok "$invu added to sudo group."
+  fi
+
   log "Granting sudo privileges to $invu via $sudoers_file..."
   printf '%s ALL=(ALL:ALL) ALL\n' "$invu" > "$sudoers_file"
   chmod 0440 "$sudoers_file"
@@ -1384,8 +1421,9 @@ debian_flatpak_setup() {
     return 0
   fi
 
-  install_step "Flatseal (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update flathub com.github.tchx84.Flatseal"
-  install_step "Bazaar (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update flathub io.github.kolunmi.Bazaar"
+  # Install user-scoped Flatpaks to avoid system-helper restrictions when invoking via sudo.
+  install_step "Flatseal (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update --user flathub com.github.tchx84.Flatseal"
+  install_step "Bazaar (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update --user flathub io.github.kolunmi.Bazaar"
 }
 
 debian_install_fonts() {
