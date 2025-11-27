@@ -1305,6 +1305,26 @@ debian_post_repo_upgrade() {
   ok "apt upgrade after repository changes completed."
 }
 
+debian_enable_backports() {
+  local backports_list="/etc/apt/sources.list.d/trixie-backports.list"
+  local entry="deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware"
+
+  if [[ -f "$backports_list" ]] && grep -Fqx "$entry" "$backports_list"; then
+    ok "Trixie backports repository already present."
+  else
+    log "Adding Trixie backports repository to $backports_list..."
+    cat > "$backports_list" <<'EOF'
+deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+EOF
+    ok "Trixie backports repository configured."
+  fi
+
+  log "Updating package lists with backports enabled..."
+  apt update
+
+  install_step "Backported kernel + headers + firmware" apt -t trixie-backports install -y linux-image-amd64 linux-headers-amd64 firmware-misc-nonfree
+}
+
 debian_setup_extrepo() {
   install_step "extrepo" apt install -y extrepo
 
@@ -1325,12 +1345,16 @@ debian_setup_extrepo() {
 }
 
 debian_install_nvidia() {
-  install_step "Kernel headers" apt install -y linux-headers-amd64
+  install_step "Kernel headers + build tools" bash -lc 'apt install -y "linux-headers-$(uname -r)" build-essential'
+  install_step "Download NVIDIA CUDA repo keyring" wget -q -O /tmp/cuda-keyring_1.1-1_all.deb https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb
+  install_step "Install NVIDIA CUDA repo keyring" dpkg -i /tmp/cuda-keyring_1.1-1_all.deb
+  log "Refreshing apt with NVIDIA CUDA repository..."
+  apt update
 
   if [[ "$GPU_SEL" == "ada_4000_plus" ]]; then
-    install_step "NVIDIA (open) driver stack" apt install -y nvidia-open-kernel-dkms nvidia-driver firmware-misc-nonfree
+    install_step "NVIDIA (open) driver stack" apt install -y nvidia-open
   else
-    install_step "NVIDIA driver stack" apt install -y nvidia-kernel-dkms nvidia-driver firmware-misc-nonfree
+    install_step "NVIDIA driver stack" apt-get install -y cuda-drivers
   fi
 }
 
@@ -1375,6 +1399,7 @@ run_debian() {
   debian_ensure_sudo_privileges
   debian_enable_extra_repos
   debian_post_repo_upgrade
+  debian_enable_backports
   debian_setup_extrepo
   debian_install_nvidia
   debian_hwaccel_setup

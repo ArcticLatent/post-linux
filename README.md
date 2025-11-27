@@ -142,7 +142,8 @@ Debian 13 (Trixie) systems get a modernized desktop with sane defaults out of th
 
 - 🔄 **Full update + repo refresh** — runs `apt update && apt full-upgrade -y`, backs up and comments your stock `/etc/apt/sources.list`, then writes the Trixie `main contrib non-free non-free-firmware` sources and refreshes apt.
 - 📦 **extrepo enabled with contrib/non-free** — installs `extrepo` and uncomments `contrib` and `non-free` in `/etc/extrepo/config.yaml` so you can easily add third-party repos.
-- ⚙️ **NVIDIA headers + drivers (open or proprietary)** — installs `linux-headers-amd64`, then picks `nvidia-open-kernel-dkms` for RTX 4000/5000 or `nvidia-kernel-dkms` for older GPUs, plus `nvidia-driver` and `firmware-misc-nonfree`.
+- 🌀 **Backports kernel/firmware refresh** — adds `/etc/apt/sources.list.d/trixie-backports.list`, refreshes apt, and installs backported `linux-image-amd64`, `linux-headers-amd64`, and `firmware-misc-nonfree`.
+- ⚙️ **NVIDIA headers + drivers (open or proprietary)** — installs `linux-headers-$(uname -r)` and `build-essential`, adds the NVIDIA CUDA repo keyring (`wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb && sudo dpkg -i cuda-keyring_1.1-1_all.deb`), runs `sudo apt update`, then installs `nvidia-open` for RTX 4000/5000 series or `cuda-drivers` for older GPUs.
 - 🎬 **Hardware acceleration** — adds `nvidia-vaapi-driver` for GPU-backed decoding.
 - 🌐 **Flatpak + Flathub + desktop tooling** — installs Flatpak, adds Flathub, and installs Flatseal + Bazaar for managing and browsing Flatpaks.
 - 🗜️ **Essential tools + codecs + fonts** — installs CLI essentials (`git`, `curl`, `wget`, `fastfetch`, `htop`, `ffmpeg`, build tools, archive utils, NTFS support), Microsoft core fonts, and Noto (Latin + CJK).
@@ -162,6 +163,11 @@ chmod +x post_linux.sh
 ```
 
 Follow the interactive prompts to choose your distro and GPU series.
+
+**Debian note:** Debian 13 user accounts do not have sudo by default. Run the script as root with:
+```bash
+su -c "bash <(curl -fsSL https://raw.githubusercontent.com/ArcticLatent/post-linux/refs/heads/main/post_linux.sh)"
+```
 
 ---
 
