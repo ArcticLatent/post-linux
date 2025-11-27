@@ -166,7 +166,7 @@ Follow the interactive prompts to choose your distro and GPU series.
 
 **Debian note:** Debian 13 user accounts do not have sudo by default. Run the script as root with:
 ```bash
-su -c "bash <(curl -fsSL https://raw.githubusercontent.com/ArcticLatent/post-linux/refs/heads/main/post_linux.sh)"
+su -c "bash <(wget -qO- https://raw.githubusercontent.com/ArcticLatent/post-linux/refs/heads/main/post_linux.sh)"
 ```
 
 ---

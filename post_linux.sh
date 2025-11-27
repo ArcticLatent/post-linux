@@ -25,6 +25,22 @@ require_root() {
   fi
 }
 
+# Ensure root PATH contains sbin utilities (su -c can omit them)
+ensure_root_path() {
+  [[ $EUID -eq 0 ]] || return 0
+
+  local missing=()
+  for d in /usr/local/sbin /usr/sbin /sbin; do
+    [[ ":$PATH:" == *":$d:"* ]] || missing+=("$d")
+  done
+
+  if ((${#missing[@]})); then
+    PATH="${PATH:+$PATH:}$(IFS=:; echo "${missing[*]}")"
+    export PATH
+    log "Adjusted PATH for root to include: ${missing[*]}"
+  fi
+}
+
 # Identify the non-root invoking user (for building AUR packages, etc.)
 get_invoking_user() {
   if [[ -n "${SUDO_USER:-}" && "$EUID" -eq 0 ]]; then
@@ -1427,6 +1443,7 @@ main() {
       exit 0
     fi
     require_root "${original_args[@]}"
+    ensure_root_path
     if ! perform_self_update "$remote_version"; then
       exit 1
     fi
@@ -1447,6 +1464,7 @@ main() {
   fi
 
   require_root "${original_args[@]}"
+  ensure_root_path
   check_for_updates "${original_args[@]}"
   detect_de
   choose_os
