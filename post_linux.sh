@@ -1261,23 +1261,37 @@ debian_update_base() {
 
 debian_ensure_sudo_privileges() {
   # Resolve the target non-root user as best we can: env override, sudo user,
-  # login name, or prompt as a last resort when running as root directly.
+  # TTY owner, first real user, or prompt as a last resort when running as root directly.
   local invu="${POST_LINUX_USER:-}"
-  local guessed=""
-  if [[ -z "$invu" || "$invu" == "root" ]]; then
-    guessed="$(get_invoking_user)"
-    [[ "$guessed" != "root" && -n "$guessed" ]] && invu="$guessed"
+  local candidates=() c=""
+
+  for c in "${SUDO_USER:-}" "${PKEXEC_UID:+$(id -nu "$PKEXEC_UID" 2>/dev/null || true)}" "${LOGNAME:-}"; do
+    [[ -n "$c" && "$c" != "root" ]] && candidates+=("$c")
+  done
+
+  if [[ -t 0 ]]; then
+    c="$(stat -c '%U' "$(tty)" 2>/dev/null || true)"
+    [[ -n "$c" && "$c" != "root" ]] && candidates+=("$c")
   fi
-  if [[ -z "$invu" || "$invu" == "root" ]]; then
-    guessed="${LOGNAME:-}"
-    [[ "$guessed" != "root" && -n "$guessed" ]] && invu="$guessed"
+
+  if command -v logname >/dev/null 2>&1; then
+    c="$(logname 2>/dev/null || true)"
+    [[ -n "$c" && "$c" != "root" ]] && candidates+=("$c")
   fi
+
   if [[ -z "$invu" || "$invu" == "root" ]]; then
-    if command -v logname >/dev/null 2>&1; then
-      guessed="$(logname 2>/dev/null || true)"
-      [[ "$guessed" != "root" && -n "$guessed" ]] && invu="$guessed"
-    fi
+    for c in "${candidates[@]}"; do
+      if id -u "$c" >/dev/null 2>&1; then
+        invu="$c"; break
+      fi
+    done
   fi
+
+  if [[ -z "$invu" || "$invu" == "root" ]]; then
+    c="$(awk -F: '$3>=1000 && $1!="nobody" && $7 !~ /false|nologin/ {print $1; exit}' /etc/passwd 2>/dev/null || true)"
+    [[ -n "$c" && "$c" != "root" ]] && invu="$c"
+  fi
+
   if [[ -z "$invu" || "$invu" == "root" ]]; then
     read -rp "Enter the non-root username to grant sudo access: " invu
   fi
@@ -1303,17 +1317,26 @@ debian_ensure_sudo_privileges() {
   fi
 
   local sudoers_file="/etc/sudoers.d/${invu}"
+  if ! getent group sudo >/dev/null; then
+    log "Creating sudo group..."
+    groupadd -r sudo
+  fi
   if ! id -nG "$invu" 2>/dev/null | grep -qw sudo; then
     log "Adding $invu to sudo group..."
     usermod -aG sudo "$invu"
     ok "$invu added to sudo group."
   fi
 
+  if ! grep -Eq '^[[:space:]]*#includedir[[:space:]]+/etc/sudoers.d' /etc/sudoers; then
+    warn "/etc/sudoers does not include /etc/sudoers.d; sudoers drop-in may be ignored. Please add '#includedir /etc/sudoers.d' manually."
+  fi
+
   log "Granting sudo privileges to $invu via $sudoers_file..."
   printf '%s ALL=(ALL:ALL) ALL\n' "$invu" > "$sudoers_file"
   chmod 0440 "$sudoers_file"
-  if visudo -cf "$sudoers_file"; then
-    ok "Sudo privileges granted to $invu."
+  chown root:root "$sudoers_file"
+  if visudo -cf "$sudoers_file" && visudo -c >/dev/null 2>&1; then
+    ok "Sudo privileges granted to $invu (re-log in to pick up the sudo group)."
   else
     err "visudo validation failed; removing $sudoers_file."
     rm -f "$sudoers_file"
@@ -1413,17 +1436,11 @@ debian_install_nvidia() {
 
 debian_flatpak_setup() {
   install_step "Flatpak" apt install -y flatpak
-  install_step "Flathub remote" flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+  install_step "Flathub remote (system)" flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
-  local invu; invu="$(get_invoking_user)"
-  if [[ -z "$invu" || "$invu" == "root" ]]; then
-    warn "Non-root invoking user not detected; skipping user Flatpak app install."
-    return 0
-  fi
-
-  # Install user-scoped Flatpaks to avoid system-helper restrictions when invoking via sudo.
-  install_step "Flatseal (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update --user flathub com.github.tchx84.Flatseal"
-  install_step "Bazaar (Flatpak)" run_as_user "$invu" "flatpak install -y --or-update --user flathub io.github.kolunmi.Bazaar"
+  # Install system-wide so the Flathub remote only needs to exist once.
+  install_step "Flatseal (Flatpak, system)" flatpak install -y --or-update --system flathub com.github.tchx84.Flatseal
+  install_step "Bazaar (Flatpak, system)" flatpak install -y --or-update --system flathub io.github.kolunmi.Bazaar
 }
 
 debian_install_fonts() {
