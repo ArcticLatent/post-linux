@@ -1297,6 +1297,11 @@ debian_ensure_sudo_privileges() {
     return 0
   fi
 
+  if [[ $EUID -ne 0 ]]; then
+    err "debian_ensure_sudo_privileges must run as root; re-run the script with sudo."
+    return 1
+  fi
+
   if [[ ":$PATH:" != *":/usr/sbin:"* ]] && [[ -x /usr/sbin/visudo ]]; then
     PATH="${PATH:+$PATH:}/usr/sbin"
     export PATH
@@ -1328,30 +1333,51 @@ debian_ensure_sudo_privileges() {
     return 0
   fi
 
-  local sudoers_file="/etc/sudoers.d/${invu}"
-  if ! getent group sudo >/dev/null; then
-    log "Creating sudo group..."
-    groupadd -r sudo
-  fi
-  if ! id -nG "$invu" 2>/dev/null | grep -qw sudo; then
-    log "Adding $invu to sudo group..."
-    usermod -aG sudo "$invu"
-    ok "$invu added to sudo group."
+  local sudoers_file="/etc/sudoers" temp_sudoers backup_file anchor_regex
+  backup_file="${sudoers_file}.post-linux.bak"
+  anchor_regex='^%sudo[[:space:]]+ALL=\\(ALL:ALL\\)[[:space:]]+ALL'
+
+  if grep -Eq "^${invu}[[:space:]]+ALL=\\(ALL\\)[[:space:]]+ALL" "$sudoers_file"; then
+    ok "$invu already listed in $sudoers_file."
+    return 0
   fi
 
-  if ! grep -Eq '^[[:space:]]*#includedir[[:space:]]+/etc/sudoers.d' /etc/sudoers; then
-    warn "/etc/sudoers does not include /etc/sudoers.d; sudoers drop-in may be ignored. Please add '#includedir /etc/sudoers.d' manually."
-  fi
+  temp_sudoers="$(mktemp /tmp/sudoers.XXXXXX)" || {
+    err "Unable to create temporary sudoers file."
+    return 1
+  }
 
-  log "Granting sudo privileges to $invu via $sudoers_file..."
-  printf '%s ALL=(ALL:ALL) ALL\n' "$invu" > "$sudoers_file"
-  chmod 0440 "$sudoers_file"
-  chown root:root "$sudoers_file"
-  if "$visudo_bin" -cf "$sudoers_file" && "$visudo_bin" -c >/dev/null 2>&1; then
-    ok "Sudo privileges granted to $invu (re-log in to pick up the sudo group)."
+  if grep -Eq "$anchor_regex" "$sudoers_file"; then
+    awk -v user="$invu" '
+      BEGIN { inserted=0 }
+      {
+        print
+        if (!inserted && $0 ~ /^%sudo[[:space:]]+ALL=\(ALL:ALL\)[[:space:]]+ALL/) {
+          print user " ALL=(ALL) ALL"
+          inserted=1
+        }
+      }
+      END {
+        if (!inserted) {
+          print user " ALL=(ALL) ALL"
+        }
+      }
+    ' "$sudoers_file" > "$temp_sudoers"
   else
-    err "visudo validation failed; removing $sudoers_file."
-    rm -f "$sudoers_file"
+    cp "$sudoers_file" "$temp_sudoers"
+    printf '\n%s ALL=(ALL) ALL\n' "$invu" >> "$temp_sudoers"
+  fi
+
+  if "$visudo_bin" -c -f "$temp_sudoers"; then
+    cp "$sudoers_file" "$backup_file"
+    cp "$temp_sudoers" "$sudoers_file"
+    chmod 0440 "$sudoers_file"
+    chown root:root "$sudoers_file"
+    ok "Sudo privileges granted to $invu in /etc/sudoers (backup at $backup_file)."
+    log "User $invu added to sudoers; log out and back in to pick up group membership."
+  else
+    err "visudo validation failed; sudoers unchanged."
+    rm -f "$temp_sudoers"
     return 1
   fi
 }
